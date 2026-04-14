@@ -8,6 +8,7 @@ import winreg
 import fnmatch
 import pyttsx3
 import urllib.request
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -145,6 +146,65 @@ def check_installed(name):
     return False
 
 
+def _auto_click_worker(proc, stop_event):
+    """背景監控安裝程式彈窗，自動點擊同意/下一步/安裝按鈕"""
+    try:
+        from pywinauto import Desktop
+        # 常見的按鈕文字（中文/英文/日文安裝程式）
+        click_texts = [
+            "同意", "我同意", "接受", "我接受",
+            "Agree", "I Agree", "I agree", "Accept",
+            "同意して", "同意する",
+            "下一步", "Next", "繼續", "Continue",
+            "安裝", "Install", "インストール",
+            "完成", "Finish", "OK", "ok", "Ok",
+            "是", "Yes", "Close", "關閉",
+        ]
+        # 需要先勾選的 checkbox 文字
+        check_texts = [
+            "同意", "我同意", "I agree", "I Agree", "Agree",
+            "接受", "Accept", "我已閱讀",
+        ]
+        while not stop_event.is_set() and proc.poll() is None:
+            try:
+                desktop = Desktop(backend="uia")
+                windows = desktop.windows()
+                for win in windows:
+                    try:
+                        if not win.is_visible():
+                            continue
+                        # 先嘗試勾選同意 checkbox
+                        for ctrl in win.descendants(control_type="CheckBox"):
+                            try:
+                                ctrl_text = ctrl.window_text()
+                                for ct in check_texts:
+                                    if ct in ctrl_text:
+                                        toggle = ctrl.get_toggle_state()
+                                        if toggle == 0:  # 未勾選
+                                            ctrl.toggle()
+                                        break
+                            except Exception:
+                                pass
+                        # 再嘗試點擊按鈕
+                        for ctrl in win.descendants(control_type="Button"):
+                            try:
+                                ctrl_text = ctrl.window_text()
+                                for bt in click_texts:
+                                    if bt == ctrl_text or bt in ctrl_text:
+                                        ctrl.click_input()
+                                        time.sleep(1)
+                                        break
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            time.sleep(2)
+    except ImportError:
+        pass  # pywinauto 不可用時靜默跳過
+
+
 def run_install(item):
     """執行單一軟體安裝，回傳 (success, message)"""
     path = item["path"]
@@ -162,18 +222,34 @@ def run_install(item):
         else:
             cmd = f'"{path}" {args}'
 
-        result = subprocess.run(
-            cmd, shell=True, timeout=INSTALL_TIMEOUT,
+        proc = subprocess.Popen(
+            cmd, shell=True,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
-        if result.returncode == 0:
+
+        # 啟動自動點擊監控
+        stop_event = threading.Event()
+        clicker = threading.Thread(
+            target=_auto_click_worker, args=(proc, stop_event), daemon=True
+        )
+        clicker.start()
+
+        try:
+            proc.wait(timeout=INSTALL_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stop_event.set()
+            return False, "安裝逾時（超過 10 分鐘）"
+
+        stop_event.set()
+        clicker.join(timeout=3)
+
+        if proc.returncode == 0:
             return True, "安裝成功"
-        elif result.returncode == 3010:
+        elif proc.returncode == 3010:
             return True, "安裝成功（需重新開機）"
         else:
-            return False, f"安裝失敗（錯誤碼: {result.returncode}）"
-    except subprocess.TimeoutExpired:
-        return False, "安裝逾時（超過 10 分鐘）"
+            return False, f"安裝失敗（錯誤碼: {proc.returncode}）"
     except Exception as e:
         return False, f"安裝錯誤: {str(e)}"
 
