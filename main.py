@@ -234,9 +234,17 @@ def run_uninstall(info):
             cmd += " /S"
 
     try:
+        # 解析指令為 list，避免 shell=True 導致等錯行程
+        import shlex
+        try:
+            cmd_list = shlex.split(cmd)
+        except ValueError:
+            cmd_list = cmd.split()
+
         proc = subprocess.Popen(
-            cmd, shell=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            cmd_list,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=0x08000000  # CREATE_NO_WINDOW
         )
 
         stop_event = threading.Event()
@@ -253,7 +261,7 @@ def run_uninstall(info):
             return False, "解除安裝逾時（超過 10 分鐘）"
 
         stop_event.set()
-        clicker.join(timeout=3)
+        clicker.join(timeout=5)
 
         if proc.returncode == 0:
             return True, "解除安裝成功"
@@ -340,13 +348,14 @@ def run_install(item):
 
     try:
         if install_type == "msi":
-            cmd = f'msiexec /i "{path}" {args}'
+            cmd_list = ["msiexec", "/i", path] + args.split()
         else:
-            cmd = f'"{path}" {args}'
+            cmd_list = [path] + args.split()
 
         proc = subprocess.Popen(
-            cmd, shell=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            cmd_list,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=0x08000000  # CREATE_NO_WINDOW
         )
 
         # 啟動自動點擊監控
@@ -364,7 +373,7 @@ def run_install(item):
             return False, "安裝逾時（超過 10 分鐘）"
 
         stop_event.set()
-        clicker.join(timeout=3)
+        clicker.join(timeout=5)
 
         if proc.returncode == 0:
             return True, "安裝成功"
@@ -1062,12 +1071,12 @@ class App(ctk.CTk):
 
         # 軟體安裝
         for item in selected_software:
-            current += 1
-            pct = current / total
-            self.after(0, lambda it=item, p=pct, c=current, tt=total:
-                self._update_progress(f"[{c}/{tt}] 安裝 {it['name']}...", p))
+            self.after(0, lambda it=item, c=current+1, tt=total:
+                self._update_progress(f"[{c}/{tt}] 安裝 {it['name']}...", c / tt * 0.95))
 
             success, message = run_install(item)
+            current += 1
+            pct = current / total
             results.append({
                 "name": item["name"],
                 "success": success,
