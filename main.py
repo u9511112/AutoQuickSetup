@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_VERSION = "1.0.0"
-UPDATE_URL = "https://raw.githubusercontent.com/Wilson-Hsieh/AutoQuickSetup/main/version.json"
+UPDATE_URL = "https://raw.githubusercontent.com/u9511112/AutoQuickSetup/master/version.json"
 
 # === 路徑設定 ===
 if getattr(sys, 'frozen', False):
