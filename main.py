@@ -284,6 +284,7 @@ def _auto_click_worker(proc, stop_event):
             "同意", "我同意", "I agree", "I Agree", "Agree",
             "接受", "Accept", "我已閱讀",
         ]
+        my_pid = os.getpid()
         while not stop_event.is_set() and proc.poll() is None:
             try:
                 desktop = Desktop(backend="uia")
@@ -291,6 +292,8 @@ def _auto_click_worker(proc, stop_event):
                 for win in windows:
                     try:
                         if not win.is_visible():
+                            continue
+                        if win.process_id() == my_pid:
                             continue
                         # 先嘗試勾選同意 checkbox
                         for ctrl in win.descendants(control_type="CheckBox"):
@@ -376,25 +379,34 @@ def run_install(item):
 def run_system_tweak(tweak):
     """執行系統優化指令"""
     for cmd in tweak["commands"]:
-        subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            subprocess.run(cmd, shell=True, timeout=30, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 def speak(text):
-    """語音通知"""
-    try:
-        engine = pyttsx3.init()
-        engine.say(text)
-        engine.runAndWait()
-        engine.stop()
-    except Exception:
+    """語音通知（非阻塞，獨立線程 + timeout）"""
+    def _speak():
+        # 優先用 PowerShell（更穩定，不會卡住）
         try:
             ps_cmd = (
                 f'powershell -Command "Add-Type -AssemblyName System.Speech; '
                 f'(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak(\'{text}\')"'
             )
-            subprocess.run(ps_cmd, shell=True, timeout=30)
+            subprocess.run(ps_cmd, shell=True, timeout=15)
+            return
         except Exception:
             pass
+        # 備案：pyttsx3
+        try:
+            engine = pyttsx3.init()
+            engine.say(text)
+            engine.runAndWait()
+            engine.stop()
+        except Exception:
+            pass
+    threading.Thread(target=_speak, daemon=True).start()
 
 
 def save_log(results):
@@ -521,28 +533,29 @@ class App(ctk.CTk):
     def _build_install_tab(self):
         tab = self.tab_install
 
-        install_scroll = ctk.CTkScrollableFrame(tab)
-        install_scroll.pack(fill="both", expand=True, pady=(0, 5))
+        self.install_scroll = ctk.CTkScrollableFrame(tab)
+        self.install_scroll.pack(fill="both", expand=True, pady=(0, 5))
 
         # 軟體安裝區
         ctk.CTkLabel(
-            install_scroll, text="📦 軟體安裝",
+            self.install_scroll, text="📦 軟體安裝",
             font=ctk.CTkFont(size=16, weight="bold")
         ).pack(anchor="w", padx=5, pady=(5, 8))
 
         if not self.software_items:
             ctk.CTkLabel(
-                install_scroll,
+                self.install_scroll,
                 text="⚠ 請將安裝檔放入 software 資料夾",
                 text_color="orange"
             ).pack(anchor="w", padx=20)
         else:
+            # 先建立 UI（全部預設勾選），背景查詢已安裝狀態
+            self._install_rows = {}
             for item in self.software_items:
-                installed = check_installed(item["name"])
-                var = ctk.BooleanVar(value=not installed)
+                var = ctk.BooleanVar(value=True)
                 self.software_vars[item["file"]] = var
 
-                row = ctk.CTkFrame(install_scroll, fg_color="transparent")
+                row = ctk.CTkFrame(self.install_scroll, fg_color="transparent")
                 row.pack(fill="x", padx=5, pady=2)
 
                 cb = ctk.CTkCheckBox(
@@ -551,27 +564,31 @@ class App(ctk.CTk):
                 )
                 cb.pack(side="left")
 
-                name_text = item["name"]
-                if installed:
-                    name_text += "  ✓ 已安裝"
-
-                ctk.CTkLabel(
-                    row, text=name_text,
-                    font=ctk.CTkFont(size=14, weight="bold"),
-                    text_color="#90EE90" if installed else None
-                ).pack(side="left", padx=(4, 0))
+                name_label = ctk.CTkLabel(
+                    row, text=item["name"],
+                    font=ctk.CTkFont(size=14, weight="bold")
+                )
+                name_label.pack(side="left", padx=(4, 0))
 
                 ctk.CTkLabel(
                     row, text=f"— {item['description']}",
                     font=ctk.CTkFont(size=12), text_color="gray"
                 ).pack(side="left", padx=(8, 0))
 
+                self._install_rows[item["file"]] = {
+                    "var": var, "label": name_label, "name": item["name"]
+                }
+
+            # 背景查詢已安裝狀態
+            threading.Thread(target=self._check_installed_bg, daemon=True).start()
+
         # 分隔線
-        ctk.CTkFrame(install_scroll, height=2, fg_color="gray30").pack(
+        ctk.CTkFrame(self.install_scroll, height=2, fg_color="gray30").pack(
             fill="x", padx=5, pady=12
         )
 
         # 系統優化區
+        install_scroll = self.install_scroll
         ctk.CTkLabel(
             install_scroll, text="⚙ 系統優化",
             font=ctk.CTkFont(size=16, weight="bold")
@@ -630,6 +647,25 @@ class App(ctk.CTk):
         )
         self.start_btn.pack(side="right")
 
+    def _check_installed_bg(self):
+        """背景查詢已安裝軟體狀態，完成後更新 UI"""
+        results = {}
+        for file_key, row_data in self._install_rows.items():
+            results[file_key] = check_installed(row_data["name"])
+        self.after(0, lambda: self._update_installed_status(results))
+
+    def _update_installed_status(self, results):
+        for file_key, installed in results.items():
+            if file_key not in self._install_rows:
+                continue
+            row_data = self._install_rows[file_key]
+            if installed:
+                row_data["var"].set(False)
+                row_data["label"].configure(
+                    text=f"{row_data['name']}  ✓ 已安裝",
+                    text_color="#90EE90"
+                )
+
     def _build_uninstall_tab(self):
         tab = self.tab_uninstall
 
@@ -681,14 +717,38 @@ class App(ctk.CTk):
         )
         self.uninstall_btn.pack(side="right")
 
-    def _load_uninstall_list(self, filter_text=""):
+    def _load_uninstall_list(self, filter_text="", refresh=False):
+        if refresh or not self.uninstall_items:
+            # 背景掃描 Registry，避免卡主執行緒
+            self._show_uninstall_loading()
+            threading.Thread(
+                target=self._scan_installed_bg, daemon=True
+            ).start()
+            return
+
+        self._render_uninstall_list(filter_text)
+
+    def _show_uninstall_loading(self):
+        for widget in self.uninstall_scroll.winfo_children():
+            widget.destroy()
+        ctk.CTkLabel(
+            self.uninstall_scroll, text="掃描中...", text_color="gray"
+        ).pack(pady=20)
+
+    def _scan_installed_bg(self):
+        items = get_all_installed()
+        self.after(0, lambda: self._on_scan_done(items))
+
+    def _on_scan_done(self, items):
+        self.uninstall_items = items
+        self._render_uninstall_list("")
+
+    def _render_uninstall_list(self, filter_text=""):
         for widget in self.uninstall_scroll.winfo_children():
             widget.destroy()
         self.uninstall_vars.clear()
 
-        self.uninstall_items = get_all_installed()
         ft = filter_text.lower()
-
         shown = 0
         for item in self.uninstall_items:
             name = item["display_name"]
@@ -722,12 +782,13 @@ class App(ctk.CTk):
             ).pack(pady=20)
 
     def _filter_uninstall_list(self):
-        self._load_uninstall_list(self.search_var.get())
+        # 只對已快取的清單過濾，不重掃 Registry
+        self._render_uninstall_list(self.search_var.get())
 
     def _refresh_uninstall_list(self):
         self.search_var.set("")
-        self._load_uninstall_list()
-        self.progress_label.configure(text="已重新整理軟體清單")
+        self._load_uninstall_list(refresh=True)
+        self.progress_label.configure(text="重新整理中...")
 
     def _select_all_uninstall(self):
         for entry in self.uninstall_vars.values():
@@ -815,7 +876,10 @@ class App(ctk.CTk):
         self.after(0, lambda: self._update_progress(summary, 1.0))
         self.after(0, self._uninstall_done)
 
-        speak("解除安裝已完成")
+        if fail_count > 0:
+            speak(f"解除安裝完成，其中 {fail_count} 個失敗")
+        else:
+            speak("全部解除安裝完成")
 
     def _uninstall_done(self):
         self.installing = False
@@ -1010,13 +1074,13 @@ class App(ctk.CTk):
                 "message": message,
             })
 
-        # 重整桌面
+        # 刷新桌面圖示（不殺 explorer，避免摧毀 app）
         if selected_tweaks:
             subprocess.run(
-                "taskkill /f /im explorer.exe", shell=True,
+                'RUNDLL32.exe user32.dll,UpdatePerUserSystemParameters ,1 ,True',
+                shell=True, timeout=10,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
-            subprocess.Popen("explorer.exe", shell=True)
 
         # 儲存日誌
         log_file = save_log(results)
@@ -1030,7 +1094,10 @@ class App(ctk.CTk):
         self.after(0, self._install_done)
 
         # 語音通知
-        speak("安裝已完成")
+        if fail_count > 0:
+            speak(f"安裝完成，其中 {fail_count} 個失敗")
+        else:
+            speak("全部安裝完成")
 
     def _update_progress(self, text, pct):
         self.progress_label.configure(text=text)
