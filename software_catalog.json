@@ -1,0 +1,74 @@
+[
+  {
+    "pattern": "ChromeSetup*.exe",
+    "name": "Google Chrome",
+    "description": "網頁瀏覽器，全球市佔率最高",
+    "silent_args": "--silent --install",
+    "type": "exe",
+    "requires_config": false
+  },
+  {
+    "pattern": "LibreOffice*.msi",
+    "name": "LibreOffice",
+    "description": "免費開源辦公套件（文書、試算表、簡報）",
+    "silent_args": "/quiet /norestart",
+    "type": "msi",
+    "requires_config": false
+  },
+  {
+    "pattern": "LineInst*.exe",
+    "name": "LINE",
+    "description": "即時通訊軟體（文字、語音、視訊通話）",
+    "silent_args": "/s",
+    "type": "exe",
+    "requires_config": false
+  },
+  {
+    "pattern": "OfficeSetup*.exe",
+    "name": "Microsoft Office",
+    "description": "微軟辦公套件（Word、Excel、PowerPoint）",
+    "silent_args": "/configure configuration.xml",
+    "type": "exe",
+    "requires_config": true
+  },
+  {
+    "pattern": "PC-cillin*.exe",
+    "name": "趨勢科技 PC-cillin",
+    "description": "防毒軟體，即時防護、網頁威脅過濾",
+    "silent_args": "/s /norestart",
+    "type": "exe",
+    "requires_config": false
+  },
+  {
+    "pattern": "Player*.exe",
+    "name": "PotPlayer",
+    "description": "多媒體影音播放器，支援多種格式",
+    "silent_args": "/S",
+    "type": "exe",
+    "requires_config": false
+  },
+  {
+    "pattern": "Setup-WPS.exe",
+    "name": "WPS Office 中文版",
+    "description": "辦公套件中文版（相容 MS Office 格式）",
+    "silent_args": "/S",
+    "type": "exe",
+    "requires_config": false
+  },
+  {
+    "pattern": "Setup-WPS*英文*.exe",
+    "name": "WPS Office 英文版",
+    "description": "辦公套件英文版（相容 MS Office 格式）",
+    "silent_args": "/S",
+    "type": "exe",
+    "requires_config": false
+  },
+  {
+    "pattern": "Winrar*.exe",
+    "name": "WinRAR",
+    "description": "壓縮/解壓縮工具（支援 RAR、ZIP 等格式）",
+    "silent_args": "/S",
+    "type": "exe",
+    "requires_config": false
+  }
+]
