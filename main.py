@@ -937,7 +937,7 @@ class App(ctk.CTk):
         self.search_var.trace_add("write", lambda *_: self._filter_uninstall_list())
         ctk.CTkEntry(
             search_frame, textvariable=self.search_var,
-            placeholder_text="搜尋已安裝軟體...", height=32
+            placeholder_text="搜尋 software 資料夾中已安裝的軟體...", height=32
         ).pack(side="left", fill="x", expand=True)
 
         # 軟體清單
@@ -992,8 +992,23 @@ class App(ctk.CTk):
         ).pack(pady=20)
 
     def _scan_installed_bg(self):
-        items = get_all_installed()
-        self.after(0, lambda: self._on_scan_done(items))
+        all_items = get_all_installed()
+        # 只保留 software/ 資料夾中有對應安裝檔的軟體
+        catalog = load_catalog()
+        catalog_names = [c.get("name", "").lower() for c in catalog]
+        # 也加入 scan_software 掃到的軟體名稱
+        sw_names = [item["name"].lower() for item in scan_software()]
+        allowed_names = set(catalog_names + sw_names)
+
+        filtered = []
+        for item in all_items:
+            display = item["display_name"].lower()
+            for name in allowed_names:
+                if name and name in display:
+                    filtered.append(item)
+                    break
+
+        self.after(0, lambda: self._on_scan_done(filtered))
 
     def _on_scan_done(self, items):
         self.uninstall_items = items
@@ -1033,7 +1048,7 @@ class App(ctk.CTk):
         if shown == 0:
             ctk.CTkLabel(
                 self.uninstall_scroll,
-                text="找不到符合的軟體" if ft else "沒有偵測到已安裝的軟體",
+                text="找不到符合的軟體" if ft else "software 資料夾中的軟體均未安裝",
                 text_color="gray"
             ).pack(pady=20)
 
@@ -1069,17 +1084,20 @@ class App(ctk.CTk):
         # 確認對話框
         confirm = ctk.CTkToplevel(self)
         confirm.title("確認解除安裝")
-        confirm.geometry("420x250")
+        confirm.geometry("450x320")
+        confirm.resizable(False, False)
         confirm.transient(self)
         confirm.grab_set()
+        # 置中顯示
+        confirm.after(100, lambda: confirm.focus_force())
 
         ctk.CTkLabel(
             confirm, text="⚠ 確認要解除安裝以下軟體？",
-            font=ctk.CTkFont(size=15, weight="bold"), text_color="orange"
-        ).pack(pady=(15, 10))
+            font=ctk.CTkFont(size=16, weight="bold"), text_color="orange"
+        ).pack(pady=(20, 10))
 
-        names_frame = ctk.CTkScrollableFrame(confirm, height=120)
-        names_frame.pack(fill="both", expand=True, padx=15)
+        names_frame = ctk.CTkScrollableFrame(confirm, height=150)
+        names_frame.pack(fill="both", expand=True, padx=20)
 
         for item in selected:
             ctk.CTkLabel(
@@ -1088,7 +1106,7 @@ class App(ctk.CTk):
             ).pack(anchor="w")
 
         btn_frame = ctk.CTkFrame(confirm, fg_color="transparent")
-        btn_frame.pack(pady=10)
+        btn_frame.pack(fill="x", padx=20, pady=(15, 20))
 
         def do_uninstall():
             confirm.destroy()
@@ -1102,15 +1120,17 @@ class App(ctk.CTk):
             ).start()
 
         ctk.CTkButton(
-            btn_frame, text="確認解除安裝", width=130,
+            btn_frame, text="✓ 確認解除安裝", width=150, height=36,
+            font=ctk.CTkFont(size=14, weight="bold"),
             fg_color="#dc3545", hover_color="#c82333",
             command=do_uninstall
-        ).pack(side="left", padx=10)
+        ).pack(side="left", padx=(0, 15))
 
         ctk.CTkButton(
-            btn_frame, text="取消", width=100,
+            btn_frame, text="取消", width=100, height=36,
+            font=ctk.CTkFont(size=14),
             fg_color="gray40", command=confirm.destroy
-        ).pack(side="left", padx=10)
+        ).pack(side="left")
 
     def _uninstall_worker(self, selected):
         results = []
