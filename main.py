@@ -386,15 +386,20 @@ def run_install(item):
         args = args.replace("configuration.xml", str(config_xml))
 
     try:
+        import shlex
+        args_list = shlex.split(args, posix=False) if args else []
         if install_type == "msi":
-            cmd_list = ["msiexec", "/i", path] + args.split()
+            cmd_list = ["msiexec", "/i", path] + args_list
         else:
-            cmd_list = [path] + args.split()
+            cmd_list = [path] + args_list
+
+        # UNC 路徑不能作為 cwd，改傳 None 讓子程序繼承當前目錄
+        cwd = None if str(SOFTWARE_DIR).startswith("\\\\") else str(SOFTWARE_DIR)
 
         proc = subprocess.Popen(
             cmd_list,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            cwd=str(SOFTWARE_DIR),
+            cwd=cwd,
             creationflags=0x08000000  # CREATE_NO_WINDOW
         )
 
@@ -468,7 +473,10 @@ def speak(text):
 
 def save_log(results):
     """儲存安裝日誌"""
-    LOG_DIR.mkdir(exist_ok=True)
+    try:
+        LOG_DIR.mkdir(exist_ok=True)
+    except OSError:
+        return Path("install_log_unavailable.txt")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = LOG_DIR / f"install_log_{timestamp}.txt"
 
@@ -1013,7 +1021,11 @@ class App(ctk.CTk):
             var.set(False)
 
     def _save_config(self):
-        CONFIG_DIR.mkdir(exist_ok=True)
+        try:
+            CONFIG_DIR.mkdir(exist_ok=True)
+        except OSError:
+            self.progress_label.configure(text="⚠ 無法儲存設定（磁碟唯讀）")
+            return
         dialog = ctk.CTkInputDialog(
             text="輸入設定檔名稱：", title="儲存設定"
         )
