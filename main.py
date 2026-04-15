@@ -12,7 +12,17 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
+
+# DPI 感知：確保座標系統統一（物理像素）
+try:
+    import ctypes
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
 UPDATE_URL = "https://raw.githubusercontent.com/u9511112/AutoQuickSetup/master/version.json"
 
 # === 路徑設定 ===
@@ -338,7 +348,7 @@ def _click_by_color(win):
     for py in range(scan_top, h, 2):
         for px in range(scan_left, w, 2):
             r, g, b = pixels[px, py][:3]
-            if r < 80 and g > 150 and b < 130 and g > r + 80:
+            if r < 80 and g > 150 and 40 < b < 120 and g > r + 80:
                 green_pixels.append((px, py))
 
     if green_pixels:
@@ -988,7 +998,10 @@ class App(ctk.CTk):
         def do_uninstall():
             confirm.destroy()
             self.installing = True
+            self._stopped.clear()
+            self._paused.set()
             self.uninstall_btn.configure(state="disabled", text="解除安裝中...")
+            self._enable_controls(True)
             threading.Thread(
                 target=self._uninstall_worker, args=(selected,), daemon=True
             ).start()
@@ -1009,6 +1022,11 @@ class App(ctk.CTk):
         total = len(selected)
 
         for i, item in enumerate(selected, 1):
+            if self._stopped.is_set():
+                results.append({"name": "[中止]", "success": False, "message": "使用者停止"})
+                break
+            self._paused.wait()
+
             pct = i / total
             name = item["display_name"]
             self.after(0, lambda n=name, p=pct, c=i, tt=total:
@@ -1034,7 +1052,10 @@ class App(ctk.CTk):
 
     def _uninstall_done(self):
         self.installing = False
+        self._stopped.clear()
+        self._paused.set()
         self.uninstall_btn.configure(state="normal", text="🗑 解除安裝")
+        self._enable_controls(False)
         self._refresh_uninstall_list()
 
     def _check_update(self):
@@ -1231,10 +1252,9 @@ class App(ctk.CTk):
             return
 
         # 顯示步驟清單
-        step_names = [s[1]["name"] if s[0] == "tweak" else s[1]["name"] for s in all_steps]
-        self.after(0, lambda names=step_names: self.step_label.configure(
-            text=f"步驟: {' → '.join(names)}"
-        ))
+        step_names = [s[1]["name"] for s in all_steps]
+        display = ' → '.join(step_names[:8]) + (' → ...' if len(step_names) > 8 else '')
+        self.after(0, lambda d=display: self.step_label.configure(text=f"步驟: {d}"))
 
         for current, (step_type, step_data) in enumerate(all_steps, 1):
             # 檢查停止
@@ -1251,6 +1271,9 @@ class App(ctk.CTk):
                 self.after(0, lambda t=step_data, p=pct, c=current, tt=total:
                     self._update_progress(f"[{c}/{tt}] 系統優化: {t['name']}...", p))
                 success, message = run_system_tweak(step_data)
+                status = "✓" if success else "✗"
+                self.after(0, lambda n=step_data["name"], s=status, m=message:
+                    self.step_label.configure(text=f"  {s} [系統] {n}: {m}"))
                 results.append({
                     "name": f"[系統] {step_data['name']}",
                     "success": success,
@@ -1321,6 +1344,7 @@ class App(ctk.CTk):
         self._paused.set()
         self.start_btn.configure(state="normal", text="▶ 開始安裝")
         self._enable_controls(False)
+        self.step_label.configure(text="")
 
 
 if __name__ == "__main__":
