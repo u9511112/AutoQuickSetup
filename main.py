@@ -48,12 +48,30 @@ SYSTEM_TWEAKS = [
         ],
     },
     {
-        "name": "顯示桌面圖示",
-        "description": "顯示我的電腦、使用者資料夾等圖示",
+        "name": "桌面圖示：本機",
+        "description": "顯示「本機」圖示",
         "commands": [
             'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel" /v "{20D04FE0-3AEA-1069-A2D8-08002B30309D}" /t REG_DWORD /d 0 /f',
+        ],
+    },
+    {
+        "name": "桌面圖示：使用者資料夾",
+        "description": "顯示個人資料夾圖示",
+        "commands": [
             'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel" /v "{59031a47-3f72-44a7-89c5-5595fe6b30ee}" /t REG_DWORD /d 0 /f',
+        ],
+    },
+    {
+        "name": "桌面圖示：控制台",
+        "description": "顯示控制台圖示",
+        "commands": [
             'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel" /v "{5399E694-6C79-4741-86F1-E240E4E25E33}" /t REG_DWORD /d 0 /f',
+        ],
+    },
+    {
+        "name": "桌面圖示：網路",
+        "description": "顯示網路圖示",
+        "commands": [
             'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel" /v "{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}" /t REG_DWORD /d 0 /f',
         ],
     },
@@ -276,8 +294,7 @@ def run_uninstall(info):
 def _auto_click_worker(proc, stop_event):
     """背景監控安裝程式彈窗，自動點擊同意/下一步/安裝按鈕"""
     try:
-        from pywinauto import Desktop
-        # 常見的按鈕文字（中文/英文/日文安裝程式）
+        from pywinauto import Desktop, keyboard as pwa_kb
         click_texts = [
             "同意", "我同意", "接受", "我接受",
             "Agree", "I Agree", "I agree", "Accept",
@@ -287,12 +304,14 @@ def _auto_click_worker(proc, stop_event):
             "完成", "Finish", "OK", "ok", "Ok",
             "是", "Yes", "Close", "關閉",
         ]
-        # 需要先勾選的 checkbox 文字
         check_texts = [
             "同意", "我同意", "I agree", "I Agree", "Agree",
             "接受", "Accept", "我已閱讀",
         ]
+        # Electron/網頁式安裝程式的視窗標題關鍵字
+        electron_titles = ["LINE", "Electron"]
         my_pid = os.getpid()
+
         while not stop_event.is_set() and proc.poll() is None:
             try:
                 desktop = Desktop(backend="uia")
@@ -303,19 +322,38 @@ def _auto_click_worker(proc, stop_event):
                             continue
                         if win.process_id() == my_pid:
                             continue
-                        # 先嘗試勾選同意 checkbox
+
+                        win_title = win.window_text()
+
+                        # Electron/網頁式安裝程式：用鍵盤模擬
+                        is_electron = any(t in win_title for t in electron_titles)
+                        if is_electron:
+                            try:
+                                win.set_focus()
+                                time.sleep(0.5)
+                                # Tab 到 checkbox → Space 勾選 → Tab 到安裝按鈕 → Enter
+                                pwa_kb.send_keys("{TAB}{SPACE}")
+                                time.sleep(0.5)
+                                pwa_kb.send_keys("{TAB}{ENTER}")
+                                time.sleep(2)
+                            except Exception:
+                                pass
+                            continue
+
+                        # 標準安裝程式：UIA 控制項
+                        # 先勾選同意 checkbox
                         for ctrl in win.descendants(control_type="CheckBox"):
                             try:
                                 ctrl_text = ctrl.window_text()
                                 for ct in check_texts:
                                     if ct in ctrl_text:
                                         toggle = ctrl.get_toggle_state()
-                                        if toggle == 0:  # 未勾選
+                                        if toggle == 0:
                                             ctrl.toggle()
                                         break
                             except Exception:
                                 pass
-                        # 再嘗試點擊按鈕
+                        # 再點擊按鈕
                         for ctrl in win.descendants(control_type="Button"):
                             try:
                                 ctrl_text = ctrl.window_text()
@@ -332,7 +370,7 @@ def _auto_click_worker(proc, stop_event):
                 pass
             time.sleep(2)
     except ImportError:
-        pass  # pywinauto 不可用時靜默跳過
+        pass
 
 
 def run_install(item):
