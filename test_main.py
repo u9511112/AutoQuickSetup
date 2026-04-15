@@ -59,7 +59,7 @@ section("2. software_catalog.json 載入")
 catalog = main.load_catalog()
 test("Catalog 載入成功", isinstance(catalog, list))
 test("Catalog 非空", len(catalog) > 0)
-test("Catalog 有 9 個項目", len(catalog) == 9, f"實際: {len(catalog)}")
+test("Catalog 有 11 個項目", len(catalog) == 11, f"實際: {len(catalog)}")
 
 # 驗證每個項目的 schema
 required_fields = {"pattern", "name", "description", "silent_args", "type", "requires_config"}
@@ -72,7 +72,7 @@ for item in catalog:
 
 # 驗證特定軟體
 chrome = [c for c in catalog if "Chrome" in c["name"]]
-test("Chrome 在 catalog 中", len(chrome) == 1)
+test("Chrome 在 catalog 中（含離線/企業版）", len(chrome) == 3)
 if chrome:
     test("Chrome 安裝參數正確", "--silent" in chrome[0]["silent_args"])
 

@@ -139,6 +139,7 @@ def scan_software():
                 "type": matched["type"],
                 "requires_config": matched.get("requires_config", False),
                 "manual_install": matched.get("manual_install", False),
+                "requires_network": matched.get("requires_network", False),
             })
         else:
             items.append({
@@ -149,10 +150,21 @@ def scan_software():
                 "silent_args": "/S" if entry.suffix.lower() == ".exe" else "/quiet /norestart",
                 "type": "exe" if entry.suffix.lower() == ".exe" else "msi",
                 "requires_config": False,
+                "requires_network": False,
             })
 
     items.sort(key=lambda x: x["name"])
     return items
+
+
+def check_network():
+    """檢查是否有網路連線"""
+    import socket
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=3)
+        return True
+    except OSError:
+        return False
 
 
 def check_installed(name):
@@ -668,6 +680,8 @@ class App(ctk.CTk):
                 display_name = item["name"]
                 if item.get("manual_install"):
                     display_name += "  🖐 手動"
+                if item.get("requires_network"):
+                    display_name += "  🌐 需聯網"
 
                 name_label = ctk.CTkLabel(
                     row, text=display_name,
@@ -726,6 +740,11 @@ class App(ctk.CTk):
         btn_frame.pack(fill="x", pady=(5, 0))
 
         ctk.CTkButton(
+            btn_frame, text="🔄 重新掃描", width=100,
+            fg_color="gray40", command=self._refresh_install_list
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
             btn_frame, text="全選", width=80, command=self._select_all
         ).pack(side="left", padx=(0, 8))
 
@@ -751,6 +770,98 @@ class App(ctk.CTk):
             command=self._start_install
         )
         self.start_btn.pack(side="right")
+
+    def _refresh_install_list(self):
+        """重新掃描 software/ 資料夾，更新安裝清單"""
+        self.software_items = scan_software()
+        self.software_vars.clear()
+        # 清除並重建安裝分頁內容
+        for widget in self.install_scroll.winfo_children():
+            widget.destroy()
+        self._install_rows = {}
+
+        ctk.CTkLabel(
+            self.install_scroll, text="📦 軟體安裝",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(anchor="w", padx=5, pady=(5, 8))
+
+        if not self.software_items:
+            ctk.CTkLabel(
+                self.install_scroll,
+                text="⚠ 請將安裝檔放入 software 資料夾",
+                text_color="orange"
+            ).pack(anchor="w", padx=20)
+        else:
+            for item in self.software_items:
+                var = ctk.BooleanVar(value=True)
+                self.software_vars[item["file"]] = var
+
+                row = ctk.CTkFrame(self.install_scroll, fg_color="transparent")
+                row.pack(fill="x", padx=5, pady=2)
+
+                ctk.CTkCheckBox(
+                    row, text="", variable=var, width=24,
+                    checkbox_width=20, checkbox_height=20
+                ).pack(side="left")
+
+                display_name = item["name"]
+                if item.get("manual_install"):
+                    display_name += "  🖐 手動"
+                if item.get("requires_network"):
+                    display_name += "  🌐 需聯網"
+
+                name_label = ctk.CTkLabel(
+                    row, text=display_name,
+                    font=ctk.CTkFont(size=14, weight="bold")
+                )
+                name_label.pack(side="left", padx=(4, 0))
+
+                ctk.CTkLabel(
+                    row, text=f"— {item['description']}",
+                    font=ctk.CTkFont(size=12), text_color="gray"
+                ).pack(side="left", padx=(8, 0))
+
+                self._install_rows[item["file"]] = {
+                    "var": var, "label": name_label, "name": item["name"]
+                }
+
+            threading.Thread(target=self._check_installed_bg, daemon=True).start()
+
+        # 重建系統優化區
+        ctk.CTkFrame(self.install_scroll, height=2, fg_color="gray30").pack(
+            fill="x", padx=5, pady=12
+        )
+        ctk.CTkLabel(
+            self.install_scroll, text="⚙ 系統優化",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(anchor="w", padx=5, pady=(0, 8))
+
+        for tweak in SYSTEM_TWEAKS:
+            if tweak["name"] not in self.tweak_vars:
+                self.tweak_vars[tweak["name"]] = ctk.BooleanVar(value=True)
+            var = self.tweak_vars[tweak["name"]]
+
+            row = ctk.CTkFrame(self.install_scroll, fg_color="transparent")
+            row.pack(fill="x", padx=5, pady=2)
+
+            ctk.CTkCheckBox(
+                row, text="", variable=var, width=24,
+                checkbox_width=20, checkbox_height=20
+            ).pack(side="left")
+
+            ctk.CTkLabel(
+                row, text=tweak["name"],
+                font=ctk.CTkFont(size=14, weight="bold")
+            ).pack(side="left", padx=(4, 0))
+
+            ctk.CTkLabel(
+                row, text=f"— {tweak['description']}",
+                font=ctk.CTkFont(size=12), text_color="gray"
+            ).pack(side="left", padx=(8, 0))
+
+        self.progress_label.configure(
+            text=f"已重新掃描，找到 {len(self.software_items)} 個安裝檔"
+        )
 
     def _check_installed_bg(self):
         """背景查詢已安裝軟體狀態，完成後更新 UI"""
@@ -1183,16 +1294,39 @@ class App(ctk.CTk):
             if self.tweak_vars.get(tweak["name"], ctk.BooleanVar(value=False)).get()
         ]
 
-        # 排序：tweak → 自動安裝軟體 → 手動安裝軟體（LINE 等排最後）
-        auto_software = [item for item in selected_software if not item.get("manual_install")]
-        manual_software = [item for item in selected_software if item.get("manual_install")]
+        # 檢查網路狀態
+        has_network = check_network()
+
+        # 排序：tweak → 離線軟體 → 需聯網軟體 → 手動安裝（排最後）
+        auto_software = [item for item in selected_software
+                         if not item.get("manual_install")]
+        manual_software = [item for item in selected_software
+                           if item.get("manual_install")]
 
         all_steps = []
         for tweak in selected_tweaks:
             all_steps.append(("tweak", tweak))
         for item in auto_software:
+            if item.get("requires_network") and not has_network:
+                results.append({
+                    "name": item["name"],
+                    "success": False,
+                    "message": "需要網路連線，已跳過（離線環境）",
+                })
+                self.after(0, lambda n=item["name"]:
+                    self.step_label.configure(text=f"  ⏭ {n}: 需聯網，已跳過"))
+                continue
             all_steps.append(("software", item))
         for item in manual_software:
+            if item.get("requires_network") and not has_network:
+                results.append({
+                    "name": item["name"],
+                    "success": False,
+                    "message": "需要網路連線，已跳過（離線環境）",
+                })
+                self.after(0, lambda n=item["name"]:
+                    self.step_label.configure(text=f"  ⏭ {n}: 需聯網，已跳過"))
+                continue
             all_steps.append(("manual", item))
 
         total = len(all_steps)

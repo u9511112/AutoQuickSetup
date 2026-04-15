@@ -5,6 +5,23 @@
     "description": "網頁瀏覽器，全球市佔率最高",
     "silent_args": "--silent --install",
     "type": "exe",
+    "requires_config": false,
+    "requires_network": true
+  },
+  {
+    "pattern": "GoogleChromeStandalone*.exe",
+    "name": "Google Chrome（離線版）",
+    "description": "網頁瀏覽器，離線安裝包",
+    "silent_args": "--silent --install",
+    "type": "exe",
+    "requires_config": false
+  },
+  {
+    "pattern": "googlechrome*.msi",
+    "name": "Google Chrome（企業版）",
+    "description": "網頁瀏覽器，企業離線 MSI 安裝包",
+    "silent_args": "/quiet /norestart",
+    "type": "msi",
     "requires_config": false
   },
   {
@@ -22,7 +39,8 @@
     "silent_args": "",
     "type": "exe",
     "requires_config": false,
-    "manual_install": true
+    "manual_install": true,
+    "requires_network": true
   },
   {
     "pattern": "OfficeSetup*.exe",
@@ -30,7 +48,8 @@
     "description": "微軟辦公套件（Word、Excel、PowerPoint）",
     "silent_args": "/configure configuration.xml",
     "type": "exe",
-    "requires_config": true
+    "requires_config": true,
+    "requires_network": true
   },
   {
     "pattern": "PC-cillin*.exe",
