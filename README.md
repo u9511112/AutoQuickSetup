@@ -154,15 +154,20 @@ AutoQuickSetup/
 ├── configs/                  ← 設定檔（自動建立）
 │   └── 基本裝機.json
 └── logs/                     ← 安裝日誌（自動建立）
-    └── install_log_20260414_223000.txt
+    └── install_log_20260414_223000.txt桌
 ```
 
 ---
 
 ## 系統需求
 
-- Windows 10 / 11（所有品牌筆電適用）
+- Windows 10 / 11（所有品牌筆電適用：Lenovo、Dell、HP、ASUS、Acer、MSI 等）
 - 需要管理員權限（安裝軟體和修改系統設定）
+- USB 建議格式化為 exFAT（FAT32 不支援超過 4GB 的安裝檔）
+
+### 不支援
+- Windows S Mode（需先切換出 S Mode）
+- ARM 架構 Windows（如 Surface Pro X）的自動點擊功能可能受限
 
 ---
 

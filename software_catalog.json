@@ -19,7 +19,7 @@
     "pattern": "LineInst*.exe",
     "name": "LINE",
     "description": "即時通訊軟體（文字、語音、視訊通話）",
-    "silent_args": "/s",
+    "silent_args": "--silent",
     "type": "exe",
     "requires_config": false
   },

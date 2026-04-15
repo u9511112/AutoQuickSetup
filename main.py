@@ -44,7 +44,6 @@ SYSTEM_TWEAKS = [
         "commands": [
             "powercfg /change standby-timeout-ac 0",
             "powercfg /change monitor-timeout-ac 0",
-            "powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
         ],
     },
     {
@@ -255,7 +254,7 @@ def run_uninstall(info):
         # 解析指令為 list，避免 shell=True 導致等錯行程
         import shlex
         try:
-            cmd_list = shlex.split(cmd)
+            cmd_list = shlex.split(cmd, posix=False)
         except ValueError:
             cmd_list = cmd.split()
 
@@ -383,6 +382,8 @@ def run_install(item):
         config_xml = SOFTWARE_DIR / "configuration.xml"
         if not config_xml.exists():
             return False, "需要 configuration.xml 設定檔，已跳過"
+        # 將 args 中的相對路徑替換為絕對路徑
+        args = args.replace("configuration.xml", str(config_xml))
 
     try:
         if install_type == "msi":
@@ -393,6 +394,7 @@ def run_install(item):
         proc = subprocess.Popen(
             cmd_list,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd=str(SOFTWARE_DIR),
             creationflags=0x08000000  # CREATE_NO_WINDOW
         )
 
@@ -424,12 +426,20 @@ def run_install(item):
 
 
 def run_system_tweak(tweak):
-    """執行系統優化指令"""
+    """執行系統優化指令，回傳 (success, message)"""
+    failed = []
     for cmd in tweak["commands"]:
         try:
-            subprocess.run(cmd, shell=True, timeout=30, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            result = subprocess.run(cmd, shell=True, timeout=30, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if result.returncode != 0:
+                failed.append(cmd.split()[0])
         except subprocess.TimeoutExpired:
-            pass
+            failed.append(f"{cmd.split()[0]}(逾時)")
+        except Exception as e:
+            failed.append(str(e))
+    if failed:
+        return False, f"部分指令失敗: {', '.join(failed)}"
+    return True, "設定完成"
 
 
 def speak(text):
@@ -1100,11 +1110,11 @@ class App(ctk.CTk):
             self.after(0, lambda t=tweak, p=pct, c=current, tt=total:
                 self._update_progress(f"[{c}/{tt}] 系統優化: {t['name']}...", p))
 
-            run_system_tweak(tweak)
+            success, message = run_system_tweak(tweak)
             results.append({
                 "name": f"[系統] {tweak['name']}",
-                "success": True,
-                "message": "設定完成",
+                "success": success,
+                "message": message,
             })
 
         # 軟體安裝
@@ -1123,11 +1133,20 @@ class App(ctk.CTk):
 
         # 刷新桌面圖示（不殺 explorer，避免摧毀 app）
         if selected_tweaks:
-            subprocess.run(
-                'RUNDLL32.exe user32.dll,UpdatePerUserSystemParameters ,1 ,True',
-                shell=True, timeout=10,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
+            try:
+                subprocess.run(
+                    ["RUNDLL32.exe", "user32.dll,UpdatePerUserSystemParameters", ",1", ",True"],
+                    timeout=10, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+            except Exception:
+                pass
+            try:
+                subprocess.run(
+                    ["ie4uinit.exe", "-show"],
+                    timeout=10, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+            except Exception:
+                pass
 
         # 儲存日誌
         log_file = save_log(results)
