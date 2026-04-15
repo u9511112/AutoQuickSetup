@@ -76,8 +76,8 @@ SYSTEM_TWEAKS = [
         "name": "桌面圖示：控制台",
         "description": "顯示控制台圖示",
         "commands": [
-            'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel" /v "{5399E694-6C79-4741-86F1-E240E4E25E33}" /t REG_DWORD /d 0 /f',
-            'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\ClassicStartMenu" /v "{5399E694-6C79-4741-86F1-E240E4E25E33}" /t REG_DWORD /d 0 /f',
+            'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel" /v "{5399E694-6CE5-4D6C-8FCE-1D8870FDCBA0}" /t REG_DWORD /d 0 /f',
+            'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\ClassicStartMenu" /v "{5399E694-6CE5-4D6C-8FCE-1D8870FDCBA0}" /t REG_DWORD /d 0 /f',
         ],
     },
     {
@@ -138,6 +138,7 @@ def scan_software():
                 "silent_args": matched["silent_args"],
                 "type": matched["type"],
                 "requires_config": matched.get("requires_config", False),
+                "manual_install": matched.get("manual_install", False),
             })
         else:
             items.append({
@@ -312,53 +313,6 @@ def run_uninstall(info):
         return False, f"解除安裝錯誤: {str(e)}"
 
 
-def _click_at(x, y):
-    """用 ctypes 在指定座標點擊滑鼠"""
-    import ctypes
-    ctypes.windll.user32.SetCursorPos(x, y)
-    time.sleep(0.15)
-    ctypes.windll.user32.mouse_event(0x0002, 0, 0, 0, 0)
-    ctypes.windll.user32.mouse_event(0x0004, 0, 0, 0, 0)
-
-
-def _click_by_color(win):
-    """截取視窗畫面，用顏色掃描找到 LINE 的綠色安裝按鈕和 checkbox 並點擊"""
-    from PIL import ImageGrab
-    rect = win.rectangle()
-    # 截取視窗區域
-    img = ImageGrab.grab(bbox=(rect.left, rect.top, rect.right, rect.bottom))
-    pixels = img.load()
-    w, h = img.size
-
-    # 1. 先找 checkbox 區域（視窗下半部，左側，找灰色小方框附近）
-    #    checkbox 在底部 20% 區域、左側 30% 區域
-    cb_region_top = int(h * 0.80)
-    cb_region_right = int(w * 0.30)
-    # 點擊 checkbox 區域的中心偏左位置
-    cb_x = rect.left + int(w * 0.05)
-    cb_y = rect.top + cb_region_top + int((h - cb_region_top) * 0.5)
-    _click_at(cb_x, cb_y)
-    time.sleep(0.8)
-
-    # 2. 用顏色掃描找綠色「安裝」按鈕
-    #    LINE 綠色範圍: R=0~80, G=150~230, B=50~130
-    green_pixels = []
-    scan_top = int(h * 0.75)  # 只掃描底部 25%
-    scan_left = int(w * 0.50)  # 只掃描右半邊
-    for py in range(scan_top, h, 2):
-        for px in range(scan_left, w, 2):
-            r, g, b = pixels[px, py][:3]
-            if r < 80 and g > 150 and 40 < b < 120 and g > r + 80:
-                green_pixels.append((px, py))
-
-    if green_pixels:
-        # 取綠色區域的中心點
-        avg_x = sum(p[0] for p in green_pixels) // len(green_pixels)
-        avg_y = sum(p[1] for p in green_pixels) // len(green_pixels)
-        btn_x = rect.left + avg_x
-        btn_y = rect.top + avg_y
-        _click_at(btn_x, btn_y)
-
 
 def _auto_click_worker(proc, stop_event):
     """背景監控安裝程式彈窗，自動點擊同意/下一步/安裝按鈕"""
@@ -377,8 +331,6 @@ def _auto_click_worker(proc, stop_event):
             "同意", "我同意", "I agree", "I Agree", "Agree",
             "接受", "Accept", "我已閱讀",
         ]
-        # Electron/網頁式安裝程式的視窗標題關鍵字
-        electron_titles = ["LINE", "Electron"]
         my_pid = os.getpid()
 
         while not stop_event.is_set() and proc.poll() is None:
@@ -390,18 +342,6 @@ def _auto_click_worker(proc, stop_event):
                         if not win.is_visible():
                             continue
                         if win.process_id() == my_pid:
-                            continue
-
-                        win_title = win.window_text()
-
-                        # Electron/網頁式安裝程式（如 LINE）：顏色掃描找綠色按鈕
-                        is_electron = any(t in win_title for t in electron_titles)
-                        if is_electron:
-                            try:
-                                _click_by_color(win)
-                                time.sleep(3)
-                            except Exception:
-                                pass
                             continue
 
                         # 標準安裝程式：UIA 控制項
@@ -725,8 +665,12 @@ class App(ctk.CTk):
                 )
                 cb.pack(side="left")
 
+                display_name = item["name"]
+                if item.get("manual_install"):
+                    display_name += "  🖐 手動"
+
                 name_label = ctk.CTkLabel(
-                    row, text=item["name"],
+                    row, text=display_name,
                     font=ctk.CTkFont(size=14, weight="bold")
                 )
                 name_label.pack(side="left", padx=(4, 0))
@@ -1239,11 +1183,17 @@ class App(ctk.CTk):
             if self.tweak_vars.get(tweak["name"], ctk.BooleanVar(value=False)).get()
         ]
 
+        # 排序：tweak → 自動安裝軟體 → 手動安裝軟體（LINE 等排最後）
+        auto_software = [item for item in selected_software if not item.get("manual_install")]
+        manual_software = [item for item in selected_software if item.get("manual_install")]
+
         all_steps = []
         for tweak in selected_tweaks:
             all_steps.append(("tweak", tweak))
-        for item in selected_software:
+        for item in auto_software:
             all_steps.append(("software", item))
+        for item in manual_software:
+            all_steps.append(("manual", item))
 
         total = len(all_steps)
         if total == 0:
@@ -1257,12 +1207,10 @@ class App(ctk.CTk):
         self.after(0, lambda d=display: self.step_label.configure(text=f"步驟: {d}"))
 
         for current, (step_type, step_data) in enumerate(all_steps, 1):
-            # 檢查停止
             if self._stopped.is_set():
                 results.append({"name": "[中止]", "success": False, "message": "使用者停止"})
                 break
 
-            # 檢查暫停
             self._paused.wait()
 
             pct = (current - 1) / total
@@ -1279,6 +1227,31 @@ class App(ctk.CTk):
                     "success": success,
                     "message": message,
                 })
+            elif step_type == "manual":
+                # 手動安裝：語音提示，啟動安裝程式但不等待
+                name = step_data["name"]
+                self.after(0, lambda n=name, p=pct, c=current, tt=total:
+                    self._update_progress(f"[{c}/{tt}] 手動安裝 {n}（請手動操作）...", p))
+                speak(f"請手動勾選同意並安裝 {name}")
+                try:
+                    proc = subprocess.Popen(
+                        [step_data["path"]],
+                        creationflags=0x08000000
+                    )
+                    self.after(0, lambda n=name:
+                        self.step_label.configure(text=f"  ⏳ {n}: 等待手動安裝完成..."))
+                    proc.wait(timeout=INSTALL_TIMEOUT)
+                    success = proc.returncode == 0 or proc.returncode == 3010
+                    message = "安裝成功" if success else f"安裝失敗（錯誤碼: {proc.returncode}）"
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    success, message = False, "安裝逾時"
+                except Exception as e:
+                    success, message = False, f"安裝錯誤: {str(e)}"
+                status = "✓" if success else "✗"
+                results.append({"name": name, "success": success, "message": message})
+                self.after(0, lambda n=name, s=status, m=message:
+                    self.step_label.configure(text=f"  {s} {n}: {m}"))
             else:
                 self.after(0, lambda it=step_data, p=pct, c=current, tt=total:
                     self._update_progress(f"[{c}/{tt}] 安裝 {it['name']}...", p))
@@ -1289,7 +1262,6 @@ class App(ctk.CTk):
                     "success": success,
                     "message": message,
                 })
-                # 即時更新步驟結果
                 self.after(0, lambda n=step_data["name"], s=status, m=message:
                     self.step_label.configure(text=f"  {s} {n}: {m}"))
 

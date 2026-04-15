@@ -19,9 +19,10 @@
     "pattern": "LineInst*.exe",
     "name": "LINE",
     "description": "即時通訊軟體（文字、語音、視訊通話）",
-    "silent_args": "--silent",
+    "silent_args": "",
     "type": "exe",
-    "requires_config": false
+    "requires_config": false,
+    "manual_install": true
   },
   {
     "pattern": "OfficeSetup*.exe",
