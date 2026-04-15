@@ -249,7 +249,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
 # ============================================================
 section("10. SYSTEM_TWEAKS 結構")
 
-test("有 6 個系統優化項目", len(main.SYSTEM_TWEAKS) == 6)
+test("有 7 個系統優化項目", len(main.SYSTEM_TWEAKS) == 7)
 for tweak in main.SYSTEM_TWEAKS:
     test(f"  {tweak['name']} 有 commands", len(tweak["commands"]) > 0)
     test(f"  {tweak['name']} 有 description", len(tweak["description"]) > 0)
@@ -262,7 +262,10 @@ power = [t for t in main.SYSTEM_TWEAKS if "電源" in t["name"]][0]
 test("電源計畫有 2 個指令", len(power["commands"]) == 2)
 
 desktop_items = [t for t in main.SYSTEM_TWEAKS if "桌面圖示" in t["name"]]
-test("桌面圖示拆為 4 個獨立項目", len(desktop_items) == 4)
+test("桌面圖示拆為 5 個獨立項目", len(desktop_items) == 5)
+
+recycle = [t for t in main.SYSTEM_TWEAKS if "資源回收桶" in t["name"]]
+test("資源回收桶在清單中", len(recycle) == 1)
 
 # ============================================================
 # 11. version.json 測試
