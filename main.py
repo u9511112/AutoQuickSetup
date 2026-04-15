@@ -1084,8 +1084,9 @@ class App(ctk.CTk):
         # 確認對話框
         confirm = ctk.CTkToplevel(self)
         confirm.title("確認解除安裝")
-        confirm.geometry("450x320")
-        confirm.resizable(False, False)
+        confirm.geometry("500x400")
+        confirm.resizable(True, True)
+        confirm.minsize(400, 350)
         confirm.transient(self)
         confirm.grab_set()
         # 置中顯示
@@ -1096,17 +1097,9 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=16, weight="bold"), text_color="orange"
         ).pack(pady=(20, 10))
 
-        names_frame = ctk.CTkScrollableFrame(confirm, height=150)
-        names_frame.pack(fill="both", expand=True, padx=20)
-
-        for item in selected:
-            ctk.CTkLabel(
-                names_frame, text=f"  • {item['display_name']}",
-                font=ctk.CTkFont(size=13), anchor="w"
-            ).pack(anchor="w")
-
+        # 按鈕先 pack 到底部（固定位置，不會被擠掉）
         btn_frame = ctk.CTkFrame(confirm, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=20, pady=(15, 20))
+        btn_frame.pack(side="bottom", fill="x", padx=20, pady=(10, 20))
 
         def do_uninstall():
             confirm.destroy()
@@ -1120,17 +1113,27 @@ class App(ctk.CTk):
             ).start()
 
         ctk.CTkButton(
-            btn_frame, text="✓ 確認解除安裝", width=150, height=36,
+            btn_frame, text="✓ 確認解除安裝", width=150, height=40,
             font=ctk.CTkFont(size=14, weight="bold"),
             fg_color="#dc3545", hover_color="#c82333",
             command=do_uninstall
         ).pack(side="left", padx=(0, 15))
 
         ctk.CTkButton(
-            btn_frame, text="取消", width=100, height=36,
+            btn_frame, text="取消", width=100, height=40,
             font=ctk.CTkFont(size=14),
             fg_color="gray40", command=confirm.destroy
         ).pack(side="left")
+
+        # 軟體清單在按鈕上方，填滿剩餘空間
+        names_frame = ctk.CTkScrollableFrame(confirm)
+        names_frame.pack(fill="both", expand=True, padx=20, pady=(0, 5))
+
+        for item in selected:
+            ctk.CTkLabel(
+                names_frame, text=f"  • {item['display_name']}",
+                font=ctk.CTkFont(size=13), anchor="w"
+            ).pack(anchor="w")
 
     def _uninstall_worker(self, selected):
         results = []
