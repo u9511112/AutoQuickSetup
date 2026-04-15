@@ -12,17 +12,36 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.3"
 
 # DPI 感知：確保座標系統統一（物理像素）
+import ctypes
 try:
-    import ctypes
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
     try:
         ctypes.windll.user32.SetProcessDPIAware()
     except Exception:
         pass
+
+# Windows 錯誤碼中文對照
+_WIN_ERROR_MAP = {
+    2: "找不到檔案",
+    3: "找不到路徑",
+    5: "存取被拒（權限不足）",
+    32: "檔案被其他程式佔用",
+    87: "參數錯誤",
+    740: "需要管理員權限",
+    1223: "操作已取消",
+    1260: "被安全性原則封鎖",
+}
+
+def _cn_error(e):
+    """將 Windows 錯誤轉為中文訊息"""
+    if hasattr(e, 'winerror') and e.winerror in _WIN_ERROR_MAP:
+        return _WIN_ERROR_MAP[e.winerror]
+    return str(e)
+
 UPDATE_URL = "https://raw.githubusercontent.com/u9511112/AutoQuickSetup/master/version.json"
 
 # === 路徑設定 ===
@@ -101,8 +120,11 @@ SYSTEM_TWEAKS = [
 
 def load_catalog():
     if CATALOG_FILE.exists():
-        with open(CATALOG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(CATALOG_FILE, "r", encoding="utf-8-sig") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return []
     return []
 
 
@@ -113,45 +135,54 @@ def scan_software():
     if not SOFTWARE_DIR.exists():
         return items
 
-    for entry in SOFTWARE_DIR.iterdir():
-        if entry.name in SKIP_FILES:
-            continue
-        if entry.is_dir() and entry.name in SKIP_DIRS:
-            continue
-        if entry.is_dir():
-            continue
-        if entry.suffix.lower() not in (".exe", ".msi"):
-            continue
+    try:
+        entries = list(SOFTWARE_DIR.iterdir())
+    except PermissionError:
+        return items
 
-        matched = None
-        for cat in catalog:
-            if fnmatch.fnmatch(entry.name, cat["pattern"]):
-                matched = cat
-                break
+    for entry in entries:
+        try:
+            if entry.name in SKIP_FILES:
+                continue
+            if entry.is_dir() and entry.name in SKIP_DIRS:
+                continue
+            if entry.is_dir():
+                continue
+            if entry.suffix.lower() not in (".exe", ".msi"):
+                continue
 
-        if matched:
-            items.append({
-                "file": entry.name,
-                "path": str(entry),
-                "name": matched["name"],
-                "description": matched["description"],
-                "silent_args": matched["silent_args"],
-                "type": matched["type"],
-                "requires_config": matched.get("requires_config", False),
-                "manual_install": matched.get("manual_install", False),
-                "requires_network": matched.get("requires_network", False),
-            })
-        else:
-            items.append({
-                "file": entry.name,
-                "path": str(entry),
-                "name": entry.stem,
-                "description": "未知軟體",
-                "silent_args": "/S" if entry.suffix.lower() == ".exe" else "/quiet /norestart",
-                "type": "exe" if entry.suffix.lower() == ".exe" else "msi",
-                "requires_config": False,
-                "requires_network": False,
-            })
+            matched = None
+            for cat in catalog:
+                pattern = cat.get("pattern", "")
+                if pattern and fnmatch.fnmatch(entry.name, pattern):
+                    matched = cat
+                    break
+
+            if matched:
+                items.append({
+                    "file": entry.name,
+                    "path": str(entry),
+                    "name": matched.get("name", entry.stem),
+                    "description": matched.get("description", ""),
+                    "silent_args": matched.get("silent_args", "/S"),
+                    "type": matched.get("type", "exe"),
+                    "requires_config": matched.get("requires_config", False),
+                    "manual_install": matched.get("manual_install", False),
+                    "requires_network": matched.get("requires_network", False),
+                })
+            else:
+                items.append({
+                    "file": entry.name,
+                    "path": str(entry),
+                    "name": entry.stem,
+                    "description": "未知軟體",
+                    "silent_args": "/S" if entry.suffix.lower() == ".exe" else "/quiet /norestart",
+                    "type": "exe" if entry.suffix.lower() == ".exe" else "msi",
+                    "requires_config": False,
+                    "requires_network": False,
+                })
+        except (PermissionError, OSError):
+            continue
 
     items.sort(key=lambda x: x["name"])
     return items
@@ -322,7 +353,7 @@ def run_uninstall(info):
         else:
             return False, f"解除安裝失敗（錯誤碼: {proc.returncode}）"
     except Exception as e:
-        return False, f"解除安裝錯誤: {str(e)}"
+        return False, f"解除安裝錯誤: {_cn_error(e)}"
 
 
 
@@ -444,21 +475,24 @@ def run_install(item):
         else:
             return False, f"安裝失敗（錯誤碼: {proc.returncode}）"
     except Exception as e:
-        return False, f"安裝錯誤: {str(e)}"
+        return False, f"安裝錯誤: {_cn_error(e)}"
 
 
 def run_system_tweak(tweak):
     """執行系統優化指令，回傳 (success, message)"""
     failed = []
     for cmd in tweak["commands"]:
+        if not cmd.strip():
+            continue
+        cmd_name = cmd.split()[0] if cmd.split() else cmd[:20]
         try:
             result = subprocess.run(cmd, shell=True, timeout=30, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if result.returncode != 0:
-                failed.append(cmd.split()[0])
+                failed.append(cmd_name)
         except subprocess.TimeoutExpired:
-            failed.append(f"{cmd.split()[0]}(逾時)")
+            failed.append(f"{cmd_name}(逾時)")
         except Exception as e:
-            failed.append(str(e))
+            failed.append(_cn_error(e))
     if failed:
         return False, f"部分指令失敗: {', '.join(failed)}"
     return True, "設定完成"
@@ -516,8 +550,11 @@ def save_log(results):
     lines.append(f"{'=' * 50}")
     lines.append("By: 謝智翔")
 
-    with open(log_file, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+    try:
+        with open(log_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+    except OSError:
+        return Path("日誌儲存失敗")
 
     return log_file
 
@@ -773,6 +810,9 @@ class App(ctk.CTk):
 
     def _refresh_install_list(self):
         """重新掃描 software/ 資料夾，更新安裝清單"""
+        if self.installing:
+            self.progress_label.configure(text="⚠ 安裝/解除安裝進行中，無法重新掃描")
+            return
         self.software_items = scan_software()
         self.software_vars.clear()
         # 清除並重建安裝分頁內容
@@ -1147,7 +1187,10 @@ class App(ctk.CTk):
 
         def open_download():
             if download_url:
-                os.startfile(download_url)
+                try:
+                    os.startfile(download_url)
+                except OSError:
+                    self.progress_label.configure(text="⚠ 無法開啟下載連結")
             dialog.destroy()
 
         ctk.CTkButton(
@@ -1217,15 +1260,25 @@ class App(ctk.CTk):
         if not name:
             return
 
+        import re
+        if re.search(r'[\\/:*?"<>|]', name) or name.strip().upper() in (
+            "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+            "LPT1", "LPT2", "LPT3",
+        ):
+            self.progress_label.configure(text="⚠ 檔名含非法字元，請重新輸入")
+            return
+
         config = {
             "software": {k: v.get() for k, v in self.software_vars.items()},
             "tweaks": {k: v.get() for k, v in self.tweak_vars.items()},
         }
         config_file = CONFIG_DIR / f"{name}.json"
-        with open(config_file, "w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-
-        self.progress_label.configure(text=f"設定已儲存: {name}.json")
+        try:
+            with open(config_file, "w", encoding="utf-8") as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+            self.progress_label.configure(text=f"設定已儲存: {name}.json")
+        except OSError:
+            self.progress_label.configure(text="⚠ 儲存失敗（磁碟空間不足或權限不足）")
 
     def _load_config(self):
         if not CONFIG_DIR.exists() or not list(CONFIG_DIR.glob("*.json")):
@@ -1258,8 +1311,13 @@ class App(ctk.CTk):
 
     def _apply_config(self, name, window):
         config_file = CONFIG_DIR / f"{name}.json"
-        with open(config_file, "r", encoding="utf-8") as f:
-            config = json.load(f)
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+            window.destroy()
+            self.progress_label.configure(text="⚠ 設定檔格式損壞，無法載入")
+            return
 
         for k, v in config.get("software", {}).items():
             if k in self.software_vars:
@@ -1381,7 +1439,7 @@ class App(ctk.CTk):
                     proc.kill()
                     success, message = False, "安裝逾時"
                 except Exception as e:
-                    success, message = False, f"安裝錯誤: {str(e)}"
+                    success, message = False, f"安裝錯誤: {_cn_error(e)}"
                 status = "✓" if success else "✗"
                 results.append({"name": name, "success": success, "message": message})
                 self.after(0, lambda n=name, s=status, m=message:
