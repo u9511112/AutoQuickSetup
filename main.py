@@ -324,17 +324,32 @@ def _auto_click_worker(proc, stop_event):
 
                         win_title = win.window_text()
 
-                        # Electron/網頁式安裝程式：用鍵盤模擬
+                        # Electron/網頁式安裝程式（如 LINE）：用座標點擊
                         is_electron = any(t in win_title for t in electron_titles)
                         if is_electron:
                             try:
-                                win.set_focus()
-                                time.sleep(0.5)
-                                # Tab 到 checkbox → Space 勾選 → Tab 到安裝按鈕 → Enter
-                                pwa_kb.send_keys("{TAB}{SPACE}")
-                                time.sleep(0.5)
-                                pwa_kb.send_keys("{TAB}{ENTER}")
-                                time.sleep(2)
+                                import ctypes
+                                rect = win.rectangle()
+                                w = rect.right - rect.left
+                                h = rect.bottom - rect.top
+                                # 左下角 checkbox 位置（約 x=15%, y=90%）
+                                cb_x = rect.left + int(w * 0.08)
+                                cb_y = rect.top + int(h * 0.92)
+                                # 右下角「安裝」按鈕位置（約 x=88%, y=92%）
+                                btn_x = rect.left + int(w * 0.88)
+                                btn_y = rect.top + int(h * 0.92)
+                                # 點擊 checkbox（同意）
+                                ctypes.windll.user32.SetCursorPos(cb_x, cb_y)
+                                time.sleep(0.3)
+                                ctypes.windll.user32.mouse_event(0x0002, 0, 0, 0, 0)  # LEFTDOWN
+                                ctypes.windll.user32.mouse_event(0x0004, 0, 0, 0, 0)  # LEFTUP
+                                time.sleep(1)
+                                # 點擊「安裝」按鈕
+                                ctypes.windll.user32.SetCursorPos(btn_x, btn_y)
+                                time.sleep(0.3)
+                                ctypes.windll.user32.mouse_event(0x0002, 0, 0, 0, 0)
+                                ctypes.windll.user32.mouse_event(0x0004, 0, 0, 0, 0)
+                                time.sleep(3)
                             except Exception:
                                 pass
                             continue
