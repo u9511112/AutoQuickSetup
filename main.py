@@ -290,6 +290,54 @@ def run_uninstall(info):
         return False, f"解除安裝錯誤: {str(e)}"
 
 
+def _click_at(x, y):
+    """用 ctypes 在指定座標點擊滑鼠"""
+    import ctypes
+    ctypes.windll.user32.SetCursorPos(x, y)
+    time.sleep(0.15)
+    ctypes.windll.user32.mouse_event(0x0002, 0, 0, 0, 0)
+    ctypes.windll.user32.mouse_event(0x0004, 0, 0, 0, 0)
+
+
+def _click_by_color(win):
+    """截取視窗畫面，用顏色掃描找到 LINE 的綠色安裝按鈕和 checkbox 並點擊"""
+    from PIL import ImageGrab
+    rect = win.rectangle()
+    # 截取視窗區域
+    img = ImageGrab.grab(bbox=(rect.left, rect.top, rect.right, rect.bottom))
+    pixels = img.load()
+    w, h = img.size
+
+    # 1. 先找 checkbox 區域（視窗下半部，左側，找灰色小方框附近）
+    #    checkbox 在底部 20% 區域、左側 30% 區域
+    cb_region_top = int(h * 0.80)
+    cb_region_right = int(w * 0.30)
+    # 點擊 checkbox 區域的中心偏左位置
+    cb_x = rect.left + int(w * 0.05)
+    cb_y = rect.top + cb_region_top + int((h - cb_region_top) * 0.5)
+    _click_at(cb_x, cb_y)
+    time.sleep(0.8)
+
+    # 2. 用顏色掃描找綠色「安裝」按鈕
+    #    LINE 綠色範圍: R=0~80, G=150~230, B=50~130
+    green_pixels = []
+    scan_top = int(h * 0.75)  # 只掃描底部 25%
+    scan_left = int(w * 0.50)  # 只掃描右半邊
+    for py in range(scan_top, h, 2):
+        for px in range(scan_left, w, 2):
+            r, g, b = pixels[px, py][:3]
+            if r < 80 and g > 150 and b < 130 and g > r + 80:
+                green_pixels.append((px, py))
+
+    if green_pixels:
+        # 取綠色區域的中心點
+        avg_x = sum(p[0] for p in green_pixels) // len(green_pixels)
+        avg_y = sum(p[1] for p in green_pixels) // len(green_pixels)
+        btn_x = rect.left + avg_x
+        btn_y = rect.top + avg_y
+        _click_at(btn_x, btn_y)
+
+
 def _auto_click_worker(proc, stop_event):
     """背景監控安裝程式彈窗，自動點擊同意/下一步/安裝按鈕"""
     try:
@@ -324,31 +372,11 @@ def _auto_click_worker(proc, stop_event):
 
                         win_title = win.window_text()
 
-                        # Electron/網頁式安裝程式（如 LINE）：用座標點擊
+                        # Electron/網頁式安裝程式（如 LINE）：顏色掃描找綠色按鈕
                         is_electron = any(t in win_title for t in electron_titles)
                         if is_electron:
                             try:
-                                import ctypes
-                                rect = win.rectangle()
-                                w = rect.right - rect.left
-                                h = rect.bottom - rect.top
-                                # 左下角 checkbox 位置（約 x=15%, y=90%）
-                                cb_x = rect.left + int(w * 0.08)
-                                cb_y = rect.top + int(h * 0.92)
-                                # 右下角「安裝」按鈕位置（約 x=88%, y=92%）
-                                btn_x = rect.left + int(w * 0.88)
-                                btn_y = rect.top + int(h * 0.92)
-                                # 點擊 checkbox（同意）
-                                ctypes.windll.user32.SetCursorPos(cb_x, cb_y)
-                                time.sleep(0.3)
-                                ctypes.windll.user32.mouse_event(0x0002, 0, 0, 0, 0)  # LEFTDOWN
-                                ctypes.windll.user32.mouse_event(0x0004, 0, 0, 0, 0)  # LEFTUP
-                                time.sleep(1)
-                                # 點擊「安裝」按鈕
-                                ctypes.windll.user32.SetCursorPos(btn_x, btn_y)
-                                time.sleep(0.3)
-                                ctypes.windll.user32.mouse_event(0x0002, 0, 0, 0, 0)
-                                ctypes.windll.user32.mouse_event(0x0004, 0, 0, 0, 0)
+                                _click_by_color(win)
                                 time.sleep(3)
                             except Exception:
                                 pass
@@ -539,6 +567,9 @@ class App(ctk.CTk):
         self.uninstall_vars = {}
         self.uninstall_items = []
         self.installing = False
+        self._paused = threading.Event()
+        self._paused.set()  # 未暫停狀態
+        self._stopped = threading.Event()
 
         self._build_ui()
         threading.Thread(target=self._check_update, daemon=True).start()
@@ -578,21 +609,49 @@ class App(ctk.CTk):
         progress_frame = ctk.CTkFrame(self)
         progress_frame.pack(fill="x", padx=15, pady=(5, 5))
 
+        # 步驟顯示
+        self.step_label = ctk.CTkLabel(
+            progress_frame, text="",
+            font=ctk.CTkFont(size=11), text_color="gray"
+        )
+        self.step_label.pack(anchor="w", padx=10, pady=(8, 0))
+
         self.progress_label = ctk.CTkLabel(
             progress_frame, text="就緒",
             font=ctk.CTkFont(size=13)
         )
-        self.progress_label.pack(anchor="w", padx=10, pady=(8, 2))
+        self.progress_label.pack(anchor="w", padx=10, pady=(2, 2))
 
         self.progress_bar = ctk.CTkProgressBar(progress_frame)
         self.progress_bar.pack(fill="x", padx=10, pady=(0, 4))
         self.progress_bar.set(0)
 
+        # 進度百分比 + 暫停/停止按鈕
+        ctrl_frame = ctk.CTkFrame(progress_frame, fg_color="transparent")
+        ctrl_frame.pack(fill="x", padx=10, pady=(0, 8))
+
         self.progress_pct = ctk.CTkLabel(
-            progress_frame, text="0%",
+            ctrl_frame, text="0%",
             font=ctk.CTkFont(size=12), text_color="gray"
         )
-        self.progress_pct.pack(anchor="e", padx=10, pady=(0, 8))
+        self.progress_pct.pack(side="left")
+
+        self.stop_btn = ctk.CTkButton(
+            ctrl_frame, text="⏹ 停止", width=70, height=26,
+            fg_color="#dc3545", hover_color="#c82333",
+            font=ctk.CTkFont(size=11),
+            command=self._stop_install, state="disabled"
+        )
+        self.stop_btn.pack(side="right", padx=(5, 0))
+
+        self.pause_btn = ctk.CTkButton(
+            ctrl_frame, text="⏸ 暫停", width=70, height=26,
+            fg_color="#ffc107", hover_color="#e0a800",
+            text_color="black",
+            font=ctk.CTkFont(size=11),
+            command=self._toggle_pause, state="disabled"
+        )
+        self.pause_btn.pack(side="right")
 
         # 底部備註
         footer = ctk.CTkFrame(self, fg_color="transparent")
@@ -1014,6 +1073,28 @@ class App(ctk.CTk):
             fg_color="gray40", command=dialog.destroy
         ).pack(side="left", padx=10)
 
+    def _toggle_pause(self):
+        if self._paused.is_set():
+            self._paused.clear()
+            self.pause_btn.configure(text="▶ 繼續", fg_color="#28a745", hover_color="#218838", text_color="white")
+            self.progress_label.configure(text="已暫停")
+        else:
+            self._paused.set()
+            self.pause_btn.configure(text="⏸ 暫停", fg_color="#ffc107", hover_color="#e0a800", text_color="black")
+
+    def _stop_install(self):
+        self._stopped.set()
+        self._paused.set()  # 解除暫停，讓 worker 能檢查 stopped 旗標
+        self.progress_label.configure(text="正在停止...")
+
+    def _enable_controls(self, enable):
+        """啟用/停用暫停和停止按鈕"""
+        state = "normal" if enable else "disabled"
+        self.pause_btn.configure(state=state)
+        self.stop_btn.configure(state=state)
+        if not enable:
+            self.pause_btn.configure(text="⏸ 暫停", fg_color="#ffc107", hover_color="#e0a800", text_color="black")
+
     def _toggle_theme(self):
         current = ctk.get_appearance_mode()
         if current == "Dark":
@@ -1107,7 +1188,10 @@ class App(ctk.CTk):
         if self.installing:
             return
         self.installing = True
+        self._stopped.clear()
+        self._paused.set()
         self.start_btn.configure(state="disabled", text="安裝中...")
+        self.after(0, lambda: self._enable_controls(True))
         threading.Thread(target=self._install_worker, daemon=True).start()
 
     def _install_worker(self):
@@ -1122,44 +1206,60 @@ class App(ctk.CTk):
             if self.tweak_vars.get(tweak["name"], ctk.BooleanVar(value=False)).get()
         ]
 
-        total = len(selected_software) + len(selected_tweaks)
+        all_steps = []
+        for tweak in selected_tweaks:
+            all_steps.append(("tweak", tweak))
+        for item in selected_software:
+            all_steps.append(("software", item))
+
+        total = len(all_steps)
         if total == 0:
             self.after(0, lambda: self.progress_label.configure(text="未選擇任何項目"))
             self.after(0, self._install_done)
             return
 
-        current = 0
+        # 顯示步驟清單
+        step_names = [s[1]["name"] if s[0] == "tweak" else s[1]["name"] for s in all_steps]
+        self.after(0, lambda names=step_names: self.step_label.configure(
+            text=f"步驟: {' → '.join(names)}"
+        ))
 
-        # 系統優化
-        for tweak in selected_tweaks:
-            current += 1
-            pct = current / total
-            self.after(0, lambda t=tweak, p=pct, c=current, tt=total:
-                self._update_progress(f"[{c}/{tt}] 系統優化: {t['name']}...", p))
+        for current, (step_type, step_data) in enumerate(all_steps, 1):
+            # 檢查停止
+            if self._stopped.is_set():
+                results.append({"name": "[中止]", "success": False, "message": "使用者停止"})
+                break
 
-            success, message = run_system_tweak(tweak)
-            results.append({
-                "name": f"[系統] {tweak['name']}",
-                "success": success,
-                "message": message,
-            })
+            # 檢查暫停
+            self._paused.wait()
 
-        # 軟體安裝
-        for item in selected_software:
-            self.after(0, lambda it=item, c=current+1, tt=total:
-                self._update_progress(f"[{c}/{tt}] 安裝 {it['name']}...", c / tt * 0.95))
+            pct = (current - 1) / total
 
-            success, message = run_install(item)
-            current += 1
-            pct = current / total
-            results.append({
-                "name": item["name"],
-                "success": success,
-                "message": message,
-            })
+            if step_type == "tweak":
+                self.after(0, lambda t=step_data, p=pct, c=current, tt=total:
+                    self._update_progress(f"[{c}/{tt}] 系統優化: {t['name']}...", p))
+                success, message = run_system_tweak(step_data)
+                results.append({
+                    "name": f"[系統] {step_data['name']}",
+                    "success": success,
+                    "message": message,
+                })
+            else:
+                self.after(0, lambda it=step_data, p=pct, c=current, tt=total:
+                    self._update_progress(f"[{c}/{tt}] 安裝 {it['name']}...", p))
+                success, message = run_install(step_data)
+                status = "✓" if success else "✗"
+                results.append({
+                    "name": step_data["name"],
+                    "success": success,
+                    "message": message,
+                })
+                # 即時更新步驟結果
+                self.after(0, lambda n=step_data["name"], s=status, m=message:
+                    self.step_label.configure(text=f"  {s} {n}: {m}"))
 
-        # 刷新桌面圖示（不殺 explorer，避免摧毀 app）
-        if selected_tweaks:
+        # 刷新桌面圖示
+        if selected_tweaks and not self._stopped.is_set():
             try:
                 subprocess.run(
                     ["RUNDLL32.exe", "user32.dll,UpdatePerUserSystemParameters", ",1", ",True"],
@@ -1181,13 +1281,19 @@ class App(ctk.CTk):
         # 更新 UI
         success_count = sum(1 for r in results if r["success"])
         fail_count = len(results) - success_count
-        summary = f"完成！成功: {success_count} | 失敗: {fail_count} | 日誌: {log_file.name}"
+        stopped = self._stopped.is_set()
+        if stopped:
+            summary = f"已停止！成功: {success_count} | 未完成: {fail_count} | 日誌: {log_file.name}"
+        else:
+            summary = f"完成！成功: {success_count} | 失敗: {fail_count} | 日誌: {log_file.name}"
 
         self.after(0, lambda: self._update_progress(summary, 1.0))
         self.after(0, self._install_done)
 
         # 語音通知
-        if fail_count > 0:
+        if stopped:
+            speak("安裝已停止")
+        elif fail_count > 0:
             speak(f"安裝完成，其中 {fail_count} 個失敗")
         else:
             speak("全部安裝完成")
@@ -1199,7 +1305,10 @@ class App(ctk.CTk):
 
     def _install_done(self):
         self.installing = False
+        self._stopped.clear()
+        self._paused.set()
         self.start_btn.configure(state="normal", text="▶ 開始安裝")
+        self._enable_controls(False)
 
 
 if __name__ == "__main__":
