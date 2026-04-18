@@ -12,7 +12,64 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
+APP_DATE = "2026-04-18"
+
+CHANGELOG = [
+    {
+        "version": "1.0.4",
+        "date": "2026-04-18",
+        "features": [
+            "新增「📄 日誌」按鈕：一鍵開啟本次安裝日誌",
+            "新增「ℹ 版本」按鈕：查看版本號、日期與更新紀錄",
+        ],
+        "fixes": [
+            "離線時不再自動跳過需聯網軟體（仍嘗試安裝，由安裝程式回報）",
+            "網路偵測改用多重節點（Google、Cloudflare、HTTP），避免單一節點被封鎖誤判",
+            "LINE 強制排最後安裝",
+            "軟體安裝預設不勾選，由使用者自行選擇",
+        ],
+    },
+    {
+        "version": "1.0.3",
+        "date": "2026-04-16",
+        "features": [
+            "Chrome 離線版／企業版 MSI 自動偵測支援",
+            "新增重新掃描 software 資料夾按鈕",
+            "解除安裝分頁（限 software 資料夾中的軟體）",
+            "暫停／停止按鈕、步驟進度顯示",
+        ],
+        "fixes": [
+            "控制台桌面圖示 GUID 修正",
+            "LINE 改為手動安裝並排最後（含語音提示）",
+            "所有 Windows 錯誤訊息中文化",
+            "JSON 解析、權限、競態保護、非法檔名檢查",
+            "解除安裝確認視窗：按鈕固定底部、視窗加大可調整",
+            "DPI 感知修正，多螢幕座標正確",
+        ],
+    },
+    {
+        "version": "1.0.2",
+        "date": "2026-04-10",
+        "features": [
+            "安裝彈窗自動點擊（pywinauto）",
+            "自動更新檢查",
+        ],
+        "fixes": [
+            "USB-C／唯讀磁碟相容性",
+            "跨品牌相容性修復（電源 GUID、Office 路徑）",
+            "移除 shell=True 避免卡住",
+        ],
+    },
+    {
+        "version": "1.0.0",
+        "date": "2026-04-01",
+        "features": [
+            "初始版本：軟體自動安裝、系統優化、日誌儲存、語音通知",
+        ],
+        "fixes": [],
+    },
+]
 
 # DPI 感知：確保座標系統統一（物理像素）
 import ctypes
@@ -189,12 +246,25 @@ def scan_software():
 
 
 def check_network():
-    """檢查是否有網路連線"""
+    """檢查是否有網路連線（多重節點，避免單一節點被封鎖誤判）"""
     import socket
+    # Google DNS, Cloudflare DNS, Quad9 DNS
+    hosts = [("8.8.8.8", 53), ("1.1.1.1", 53), ("9.9.9.9", 53)]
+    for host in hosts:
+        try:
+            socket.create_connection(host, timeout=2)
+            return True
+        except OSError:
+            continue
+    # 最後嘗試 HTTP（某些環境封鎖 DNS 埠但允許 HTTP）
     try:
-        socket.create_connection(("8.8.8.8", 53), timeout=3)
-        return True
-    except OSError:
+        req = urllib.request.Request(
+            "http://www.msftconnecttest.com/connecttest.txt",
+            headers={"User-Agent": "AutoQuickSetup"},
+        )
+        with urllib.request.urlopen(req, timeout=3):
+            return True
+    except Exception:
         return False
 
 
@@ -578,6 +648,7 @@ class App(ctk.CTk):
         self.uninstall_vars = {}
         self.uninstall_items = []
         self.installing = False
+        self.last_log_file = None
         self._paused = threading.Event()
         self._paused.set()  # 未暫停狀態
         self._stopped = threading.Event()
@@ -600,6 +671,20 @@ class App(ctk.CTk):
             command=self._toggle_theme
         )
         self.theme_btn.pack(side="right")
+
+        self.about_btn = ctk.CTkButton(
+            title_frame, text="ℹ 版本", width=70, height=28,
+            fg_color="gray40", hover_color="gray30",
+            command=self._show_about
+        )
+        self.about_btn.pack(side="right", padx=(0, 6))
+
+        self.log_btn = ctk.CTkButton(
+            title_frame, text="📄 日誌", width=70, height=28,
+            fg_color="gray40", hover_color="gray30",
+            command=self._open_log
+        )
+        self.log_btn.pack(side="right", padx=(0, 6))
 
         ctk.CTkLabel(
             self, text="萬能裝機自動化工具",
@@ -699,10 +784,10 @@ class App(ctk.CTk):
                 text_color="orange"
             ).pack(anchor="w", padx=20)
         else:
-            # 先建立 UI（全部預設勾選），背景查詢已安裝狀態
+            # 軟體預設不勾選，由使用者自行選擇
             self._install_rows = {}
             for item in self.software_items:
-                var = ctk.BooleanVar(value=True)
+                var = ctk.BooleanVar(value=False)
                 self.software_vars[item["file"]] = var
 
                 row = ctk.CTkFrame(self.install_scroll, fg_color="transparent")
@@ -833,7 +918,7 @@ class App(ctk.CTk):
             ).pack(anchor="w", padx=20)
         else:
             for item in self.software_items:
-                var = ctk.BooleanVar(value=True)
+                var = ctk.BooleanVar(value=False)
                 self.software_vars[item["file"]] = var
 
                 row = ctk.CTkFrame(self.install_scroll, fg_color="transparent")
@@ -1155,6 +1240,7 @@ class App(ctk.CTk):
 
         # 儲存日誌
         log_file = save_log(results)
+        self.last_log_file = log_file
 
         success_count = sum(1 for r in results if r["success"])
         fail_count = total - success_count
@@ -1257,6 +1343,106 @@ class App(ctk.CTk):
         else:
             ctk.set_appearance_mode("dark")
             self.theme_btn.configure(text="☀ 淺色")
+
+    def _open_log(self):
+        """開啟本次安裝日誌，若無則開啟 logs/ 中最新的一份"""
+        target = None
+        if self.last_log_file and Path(self.last_log_file).exists():
+            target = Path(self.last_log_file)
+        elif LOG_DIR.exists():
+            try:
+                logs = sorted(
+                    LOG_DIR.glob("install_log_*.txt"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+                if logs:
+                    target = logs[0]
+            except OSError:
+                pass
+
+        if target is None:
+            self.progress_label.configure(text="⚠ 尚無安裝日誌")
+            return
+        try:
+            os.startfile(str(target))
+            self.progress_label.configure(text=f"已開啟日誌: {target.name}")
+        except OSError as e:
+            self.progress_label.configure(text=f"⚠ 無法開啟日誌: {_cn_error(e)}")
+
+    def _show_about(self):
+        """顯示版本資訊與更新紀錄"""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("版本資訊")
+        dialog.geometry("560x560")
+        dialog.minsize(480, 400)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        header = ctk.CTkFrame(dialog, fg_color="transparent")
+        header.pack(fill="x", padx=20, pady=(20, 5))
+
+        ctk.CTkLabel(
+            header, text=f"AutoQuickSetup v{APP_VERSION}",
+            font=ctk.CTkFont(size=22, weight="bold")
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            header, text=f"發行日期：{APP_DATE}   |   作者：謝智翔",
+            font=ctk.CTkFont(size=12), text_color="gray"
+        ).pack(anchor="w", pady=(2, 0))
+
+        ctk.CTkLabel(
+            dialog, text="更新紀錄",
+            font=ctk.CTkFont(size=15, weight="bold")
+        ).pack(anchor="w", padx=20, pady=(15, 5))
+
+        content = ctk.CTkScrollableFrame(dialog)
+        content.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+
+        for entry in CHANGELOG:
+            ver_row = ctk.CTkFrame(content, fg_color="transparent")
+            ver_row.pack(fill="x", pady=(8, 2))
+            ctk.CTkLabel(
+                ver_row, text=f"v{entry['version']}",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color="#4da6ff"
+            ).pack(side="left")
+            ctk.CTkLabel(
+                ver_row, text=f"　{entry['date']}",
+                font=ctk.CTkFont(size=11), text_color="gray"
+            ).pack(side="left")
+
+            if entry.get("features"):
+                ctk.CTkLabel(
+                    content, text="✨ 新增功能",
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    text_color="#90EE90"
+                ).pack(anchor="w", padx=6, pady=(4, 0))
+                for f in entry["features"]:
+                    ctk.CTkLabel(
+                        content, text=f"    • {f}",
+                        font=ctk.CTkFont(size=12),
+                        wraplength=480, justify="left", anchor="w"
+                    ).pack(anchor="w", padx=6)
+
+            if entry.get("fixes"):
+                ctk.CTkLabel(
+                    content, text="🔧 修復 Bug",
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    text_color="#ffb366"
+                ).pack(anchor="w", padx=6, pady=(4, 0))
+                for fx in entry["fixes"]:
+                    ctk.CTkLabel(
+                        content, text=f"    • {fx}",
+                        font=ctk.CTkFont(size=12),
+                        wraplength=480, justify="left", anchor="w"
+                    ).pack(anchor="w", padx=6)
+
+        ctk.CTkButton(
+            dialog, text="關閉", width=100,
+            command=dialog.destroy
+        ).pack(pady=(0, 15))
 
     def _select_all(self):
         for var in self.software_vars.values():
@@ -1375,8 +1561,12 @@ class App(ctk.CTk):
             if self.tweak_vars.get(tweak["name"], ctk.BooleanVar(value=False)).get()
         ]
 
-        # 檢查網路狀態
+        # 檢查網路狀態（僅提示，不再自動跳過）
         has_network = check_network()
+        if not has_network:
+            self.after(0, lambda: self.step_label.configure(
+                text="⚠ 偵測到離線環境，需聯網軟體仍會嘗試安裝（可能失敗）"
+            ))
 
         # 排序：tweak → 離線軟體 → 需聯網軟體 → 手動安裝（排最後）
         auto_software = [item for item in selected_software
@@ -1387,28 +1577,17 @@ class App(ctk.CTk):
         all_steps = []
         for tweak in selected_tweaks:
             all_steps.append(("tweak", tweak))
-        for item in auto_software:
-            if item.get("requires_network") and not has_network:
-                results.append({
-                    "name": item["name"],
-                    "success": False,
-                    "message": "需要網路連線，已跳過（離線環境）",
-                })
-                self.after(0, lambda n=item["name"]:
-                    self.step_label.configure(text=f"  ⏭ {n}: 需聯網，已跳過"))
-                continue
+        # 將需聯網的排到離線後面（離線優先安裝，聯網放後面）
+        offline_first = sorted(auto_software, key=lambda x: bool(x.get("requires_network")))
+        for item in offline_first:
             all_steps.append(("software", item))
         for item in manual_software:
-            if item.get("requires_network") and not has_network:
-                results.append({
-                    "name": item["name"],
-                    "success": False,
-                    "message": "需要網路連線，已跳過（離線環境）",
-                })
-                self.after(0, lambda n=item["name"]:
-                    self.step_label.configure(text=f"  ⏭ {n}: 需聯網，已跳過"))
-                continue
             all_steps.append(("manual", item))
+
+        # 強制：LINE 永遠排在最後（即使有其他 manual_install 軟體）
+        def _is_line(step):
+            return step[1].get("name", "").strip().upper() == "LINE"
+        all_steps.sort(key=_is_line)
 
         total = len(all_steps)
         if total == 0:
@@ -1499,6 +1678,7 @@ class App(ctk.CTk):
 
         # 儲存日誌
         log_file = save_log(results)
+        self.last_log_file = log_file
 
         # 更新 UI
         success_count = sum(1 for r in results if r["success"])
