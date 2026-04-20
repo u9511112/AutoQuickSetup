@@ -8,3 +8,4 @@ dist/
 software/
 configs/
 logs/
+.claude/

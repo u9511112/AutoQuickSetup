@@ -12,10 +12,21 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.0.4"
-APP_DATE = "2026-04-18"
+APP_VERSION = "1.0.5"
+APP_DATE = "2026-04-20"
 
 CHANGELOG = [
+    {
+        "version": "1.0.5",
+        "date": "2026-04-20",
+        "features": [
+            "系統優化：電池使用中也永不睡眠／關螢幕（筆電適用）",
+            "同步腳本 sync.bat／sync_to_drive.bat 自動 git push 到 GitHub",
+        ],
+        "fixes": [
+            "更新對話框「前往下載」連結帳號修正（Wilson-Hsieh → u9511112）",
+        ],
+    },
     {
         "version": "1.0.4",
         "date": "2026-04-18",
@@ -126,10 +137,12 @@ SYSTEM_TWEAKS = [
     },
     {
         "name": "高效能電源計畫",
-        "description": "關閉自動休眠與螢幕關閉",
+        "description": "關閉自動休眠與螢幕關閉（插電/電池皆永不）",
         "commands": [
             "powercfg /change standby-timeout-ac 0",
             "powercfg /change monitor-timeout-ac 0",
+            "powercfg /change standby-timeout-dc 0",
+            "powercfg /change monitor-timeout-dc 0",
         ],
     },
     {
