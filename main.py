@@ -12,10 +12,20 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.0.5"
-APP_DATE = "2026-04-20"
+APP_VERSION = "1.0.6"
+APP_DATE = "2026-04-21"
 
 CHANGELOG = [
+    {
+        "version": "1.0.6",
+        "date": "2026-04-21",
+        "features": [
+            "自動更新：發現新版時一鍵下載並自動替換 exe、重啟程式，不需手動操作",
+        ],
+        "fixes": [
+            "下載失敗會 fallback 開啟瀏覽器讓使用者手動下載",
+        ],
+    },
     {
         "version": "1.0.5",
         "date": "2026-04-20",
@@ -111,6 +121,7 @@ def _cn_error(e):
     return str(e)
 
 UPDATE_URL = "https://raw.githubusercontent.com/u9511112/AutoQuickSetup/master/version.json"
+UPDATE_EXE_URL = "https://github.com/u9511112/AutoQuickSetup/releases/latest/download/AutoQuickSetup.exe"
 
 # === 路徑設定 ===
 if getattr(sys, 'frozen', False):
@@ -1290,7 +1301,7 @@ class App(ctk.CTk):
     def _show_update_dialog(self, latest, download_url):
         dialog = ctk.CTkToplevel(self)
         dialog.title("發現新版本")
-        dialog.geometry("400x180")
+        dialog.geometry("420x220")
         dialog.transient(self)
         dialog.grab_set()
 
@@ -1304,27 +1315,109 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=13)
         ).pack(pady=5)
 
+        status_label = ctk.CTkLabel(dialog, text="", font=ctk.CTkFont(size=12))
+        status_label.pack(pady=5)
+
         btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_frame.pack(pady=15)
+        btn_frame.pack(pady=10)
 
-        def open_download():
-            if download_url:
-                try:
-                    os.startfile(download_url)
-                except OSError:
-                    self.progress_label.configure(text="⚠ 無法開啟下載連結")
-            dialog.destroy()
-
-        ctk.CTkButton(
-            btn_frame, text="前往下載", width=120,
+        update_btn = ctk.CTkButton(
+            btn_frame, text="立即更新", width=120,
             fg_color="#28a745", hover_color="#218838",
-            command=open_download
-        ).pack(side="left", padx=10)
+        )
+        update_btn.pack(side="left", padx=10)
 
-        ctk.CTkButton(
+        later_btn = ctk.CTkButton(
             btn_frame, text="稍後再說", width=120,
             fg_color="gray40", command=dialog.destroy
-        ).pack(side="left", padx=10)
+        )
+        later_btn.pack(side="left", padx=10)
+
+        def start_update():
+            update_btn.configure(state="disabled")
+            later_btn.configure(state="disabled")
+            status_label.configure(text="下載新版中...")
+            threading.Thread(
+                target=self._perform_update,
+                args=(dialog, status_label, update_btn, later_btn, download_url),
+                daemon=True,
+            ).start()
+
+        update_btn.configure(command=start_update)
+
+    def _perform_update(self, dialog, status_label, update_btn, later_btn, download_url):
+        try:
+            if not getattr(sys, "frozen", False):
+                self.after(0, lambda: status_label.configure(text="⚠ 開發環境不支援自動更新"))
+                self.after(0, lambda: update_btn.configure(state="normal", text="關閉", command=dialog.destroy))
+                self.after(0, lambda: later_btn.configure(state="normal"))
+                return
+
+            current_exe = Path(sys.executable)
+            temp_dir = Path(os.environ.get("TEMP", str(current_exe.parent)))
+            new_exe = temp_dir / "AutoQuickSetup_new.exe"
+            updater_bat = temp_dir / "AutoQuickSetup_update.bat"
+
+            req = urllib.request.Request(UPDATE_EXE_URL, headers={"User-Agent": "AutoQuickSetup"})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                total = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                with open(new_exe, "wb") as f:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total:
+                            pct = int(downloaded * 100 / total)
+                            self.after(0, lambda p=pct: status_label.configure(text=f"下載中... {p}%"))
+
+            self.after(0, lambda: status_label.configure(text="準備安裝，程式即將重啟..."))
+
+            bat_content = (
+                "@echo off\r\n"
+                "ping 127.0.0.1 -n 3 >nul\r\n"
+                "setlocal\r\n"
+                "set /a TRIES=0\r\n"
+                ":RETRY\r\n"
+                "set /a TRIES+=1\r\n"
+                "if %TRIES% gtr 15 goto FAIL\r\n"
+                f'move /y "{new_exe}" "{current_exe}" >nul 2>&1\r\n'
+                "if errorlevel 1 (\r\n"
+                "    ping 127.0.0.1 -n 2 >nul\r\n"
+                "    goto RETRY\r\n"
+                ")\r\n"
+                f'start "" "{current_exe}"\r\n'
+                "goto CLEANUP\r\n"
+                ":FAIL\r\n"
+                f'start "" "{current_exe}"\r\n'
+                ":CLEANUP\r\n"
+                'del "%~f0"\r\n'
+            )
+            updater_bat.write_text(bat_content, encoding="utf-8")
+
+            subprocess.Popen(
+                ["cmd.exe", "/c", str(updater_bat)],
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
+                close_fds=True,
+            )
+            time.sleep(1)
+            self.after(0, self.destroy)
+            time.sleep(1)
+            os._exit(0)
+        except Exception as e:
+            err = str(e)[:80]
+            def show_err():
+                status_label.configure(text=f"⚠ 下載失敗：{err}")
+                if download_url:
+                    try:
+                        os.startfile(download_url)
+                    except OSError:
+                        pass
+                update_btn.configure(state="normal", text="關閉", command=dialog.destroy)
+                later_btn.configure(state="normal")
+            self.after(0, show_err)
 
     def _toggle_pause(self):
         if self._paused.is_set():
