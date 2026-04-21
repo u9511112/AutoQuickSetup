@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 APP_DATE = "2026-04-21"
 
 CHANGELOG = [
+    {
+        "version": "1.0.7",
+        "date": "2026-04-21",
+        "features": [
+            "「重新掃描」按鈕改名為「掃描新增的軟體」，語意更清楚",
+        ],
+        "fixes": [],
+    },
     {
         "version": "1.0.6",
         "date": "2026-04-21",
@@ -886,7 +894,7 @@ class App(ctk.CTk):
         btn_frame.pack(fill="x", pady=(5, 0))
 
         ctk.CTkButton(
-            btn_frame, text="🔄 重新掃描", width=100,
+            btn_frame, text="🔄 掃描新增的軟體", width=140,
             fg_color="gray40", command=self._refresh_install_list
         ).pack(side="left", padx=(0, 8))
 
