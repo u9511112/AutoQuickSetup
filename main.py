@@ -12,10 +12,19 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.0.7"
-APP_DATE = "2026-04-21"
+APP_VERSION = "1.0.8"
+APP_DATE = "2026-04-26"
 
 CHANGELOG = [
+    {
+        "version": "1.0.8",
+        "date": "2026-04-26",
+        "features": [
+            "系統優化新增「關閉工作列小工具」（關掉 Win11 工作列上的天氣／新聞彈窗）",
+            "新增「💬 回報」按鈕：一鍵開啟預設信箱寄問題回報給作者",
+        ],
+        "fixes": [],
+    },
     {
         "version": "1.0.7",
         "date": "2026-04-21",
@@ -202,6 +211,13 @@ SYSTEM_TWEAKS = [
         "commands": [
             'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel" /v "{645FF040-5081-101B-9F08-00AA002F954E}" /t REG_DWORD /d 0 /f',
             'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\ClassicStartMenu" /v "{645FF040-5081-101B-9F08-00AA002F954E}" /t REG_DWORD /d 0 /f',
+        ],
+    },
+    {
+        "name": "關閉工作列小工具",
+        "description": "關閉 Windows 11 工作列上的小工具（天氣／新聞彈窗）",
+        "commands": [
+            'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "TaskbarDa" /t REG_DWORD /d 0 /f',
         ],
     },
 ]
@@ -717,6 +733,13 @@ class App(ctk.CTk):
             command=self._open_log
         )
         self.log_btn.pack(side="right", padx=(0, 6))
+
+        self.feedback_btn = ctk.CTkButton(
+            title_frame, text="💬 回報", width=70, height=28,
+            fg_color="gray40", hover_color="gray30",
+            command=self._send_feedback
+        )
+        self.feedback_btn.pack(side="right", padx=(0, 6))
 
         ctk.CTkLabel(
             self, text="萬能裝機自動化工具",
@@ -1483,6 +1506,28 @@ class App(ctk.CTk):
             self.progress_label.configure(text=f"已開啟日誌: {target.name}")
         except OSError as e:
             self.progress_label.configure(text=f"⚠ 無法開啟日誌: {_cn_error(e)}")
+
+    def _send_feedback(self):
+        """開啟預設信箱寄回報信給作者"""
+        import urllib.parse
+        subject = f"AutoQuickSetup v{APP_VERSION} 回報"
+        body = (
+            f"版本：{APP_VERSION}\n"
+            f"日期：{APP_DATE}\n"
+            f"\n"
+            f"請在下方描述問題或建議：\n"
+            f"\n"
+        )
+        url = (
+            f"mailto:u9511112@gmail.com"
+            f"?subject={urllib.parse.quote(subject)}"
+            f"&body={urllib.parse.quote(body)}"
+        )
+        try:
+            os.startfile(url)
+            self.progress_label.configure(text="已開啟信箱，感謝您的回報！")
+        except OSError as e:
+            self.progress_label.configure(text=f"⚠ 無法開啟信箱：{_cn_error(e)}（請寄到 u9511112@gmail.com）")
 
     def _show_about(self):
         """顯示版本資訊與更新紀錄"""
