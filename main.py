@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 APP_DATE = "2026-05-30"
 
 CHANGELOG = [
+    {
+        "version": "1.1.2",
+        "date": "2026-05-30",
+        "features": [],
+        "fixes": [
+            "將打包環境降級回 Python 3.12，以相容舊版 (v1.0.8) 升級時因繼承 _MEIPASS 找不到 python313.dll 崩潰的問題",
+        ],
+    },
     {
         "version": "1.1.1",
         "date": "2026-05-30",
