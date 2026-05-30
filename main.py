@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 APP_DATE = "2026-05-30"
 
 CHANGELOG = [
+    {
+        "version": "1.1.1",
+        "date": "2026-05-30",
+        "features": [],
+        "fixes": [
+            "修復系統優化執行 reg add 時，因防毒軟體或 UAC 安全原則攔截導致指令失敗的問題 (引入 winreg 原生 API Fallback 寫入機制)",
+        ],
+    },
     {
         "version": "1.1.0",
         "date": "2026-05-30",
@@ -628,6 +636,70 @@ def run_install(item):
         return False, f"安裝錯誤: {_cn_error(e)}"
 
 
+def _fallback_reg_add(cmd):
+    """解析 reg add 指令並使用 winreg 原生 API 寫入以做為 Fallback 避開 reg.exe 的安全軟體攔截"""
+    try:
+        import shlex
+        import winreg
+
+        # 使用 shlex 保持引號內字串完整
+        tokens = shlex.split(cmd)
+        if len(tokens) < 3 or tokens[0].lower() != "reg" or tokens[1].lower() != "add":
+            return False
+
+        key_path = tokens[2]
+        val_name = None
+        val_type = winreg.REG_SZ
+        val_data = None
+
+        # 遍歷參數尋找 /v, /t, /d
+        i = 3
+        while i < len(tokens):
+            arg = tokens[i].lower()
+            if arg == "/v" and i + 1 < len(tokens):
+                val_name = tokens[i+1]
+                i += 2
+            elif arg == "/t" and i + 1 < len(tokens):
+                t_str = tokens[i+1].upper()
+                if t_str == "REG_DWORD":
+                    val_type = winreg.REG_DWORD
+                elif t_str == "REG_SZ":
+                    val_type = winreg.REG_SZ
+                i += 2
+            elif arg == "/d" and i + 1 < len(tokens):
+                val_data = tokens[i+1]
+                i += 2
+            else:
+                i += 1
+
+        if not key_path or val_name is None or val_data is None:
+            return False
+
+        # 解析根鍵與子路徑
+        if key_path.upper().startswith("HKCU\\"):
+            root = winreg.HKEY_CURRENT_USER
+            sub_path = key_path[5:]
+        elif key_path.upper().startswith("HKLM\\"):
+            root = winreg.HKEY_LOCAL_MACHINE
+            sub_path = key_path[5:]
+        else:
+            return False
+
+        # 依據類型轉義資料
+        if val_type == winreg.REG_DWORD:
+            val_data = int(val_data)
+
+        # 原生 API 寫入
+        key = winreg.CreateKeyEx(root, sub_path, 0, winreg.KEY_SET_VALUE)
+        try:
+            winreg.SetValueEx(key, val_name, 0, val_type, val_data)
+        finally:
+            winreg.CloseKey(key)
+        return True
+    except Exception:
+        return False
+
+
 def run_system_tweak(tweak):
     """執行系統優化指令，回傳 (success, message)"""
     failed = []
@@ -638,10 +710,18 @@ def run_system_tweak(tweak):
         try:
             result = subprocess.run(cmd, shell=True, timeout=30, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if result.returncode != 0:
+                # 當呼叫外部 reg.exe 失敗時（易被防毒軟體如 Windows Defender 攔截），改用原生 Python winreg Fallback
+                if cmd_name.lower() == "reg" and "add" in cmd.lower():
+                    if _fallback_reg_add(cmd):
+                        continue
                 failed.append(cmd_name)
         except subprocess.TimeoutExpired:
             failed.append(f"{cmd_name}(逾時)")
         except Exception as e:
+            # 異常時同樣進行 winreg Fallback
+            if cmd_name.lower() == "reg" and "add" in cmd.lower():
+                if _fallback_reg_add(cmd):
+                    continue
             failed.append(_cn_error(e))
     if failed:
         return False, f"部分指令失敗: {', '.join(failed)}"
