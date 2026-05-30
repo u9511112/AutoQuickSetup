@@ -12,10 +12,21 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.0.8"
-APP_DATE = "2026-04-26"
+APP_VERSION = "1.0.9"
+APP_DATE = "2026-05-30"
 
 CHANGELOG = [
+    {
+        "version": "1.0.9",
+        "date": "2026-05-30",
+        "features": [
+            "重構自動點擊邏輯：以 uiautomation 替換 pywinauto，解決不同品牌與螢幕尺寸 (DPI) 點擊偏離的問題",
+            "優化自動點擊效能：限制遍歷深度並過濾 Chrome/Firefox 等大型瀏覽器，大幅降低 CPU 佔用",
+        ],
+        "fixes": [
+            "同步修正 test_main.py 測試腳本，確保本機測試 100% 通過",
+        ],
+    },
     {
         "version": "1.0.8",
         "date": "2026-04-26",
