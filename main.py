@@ -12,16 +12,24 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.0.9"
+APP_VERSION = "1.1.0"
 APP_DATE = "2026-05-30"
 
 CHANGELOG = [
+    {
+        "version": "1.1.0",
+        "date": "2026-05-30",
+        "features": [],
+        "fixes": [
+            "修復自動更新時，因舊版 PyInstaller 環境變數污染 (_MEIPASS) 導致新版無法載入 Python DLL 的崩潰問題",
+        ],
+    },
     {
         "version": "1.0.9",
         "date": "2026-05-30",
         "features": [
             "重構自動點擊邏輯：以 uiautomation 替換 pywinauto，解決不同品牌與螢幕尺寸 (DPI) 點擊偏離的問題",
-            "優化自動點擊效能：限制遍歷深度並過濾 Chrome/Firefox 等大型瀏覽器，大幅降低 CPU 佔用",
+            "優化自動點擊效能：限制遍遍深度並過濾 Chrome/Firefox 等大型瀏覽器，大幅降低 CPU 佔用",
         ],
         "fixes": [
             "同步修正 test_main.py 測試腳本，確保本機測試 100% 通過",
@@ -1432,6 +1440,7 @@ class App(ctk.CTk):
 
             bat_content = (
                 "@echo off\r\n"
+                "set _MEIPASS=\r\n"  # 清除 PyInstaller 暫存路徑變數，防止新版繼承污染
                 "ping 127.0.0.1 -n 3 >nul\r\n"
                 "setlocal\r\n"
                 "set /a TRIES=0\r\n"
@@ -1452,10 +1461,15 @@ class App(ctk.CTk):
             )
             updater_bat.write_text(bat_content, encoding="utf-8")
 
+            # 清除當前進程傳遞給子進程的 PyInstaller 環境變數
+            clean_env = os.environ.copy()
+            clean_env.pop("_MEIPASS", None)
+
             subprocess.Popen(
                 ["cmd.exe", "/c", str(updater_bat)],
                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
                 close_fds=True,
+                env=clean_env,
             )
             time.sleep(1)
             self.after(0, self.destroy)
