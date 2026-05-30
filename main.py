@@ -476,9 +476,11 @@ def run_uninstall(info):
 
 
 def _auto_click_worker(proc, stop_event):
-    """背景監控安裝程式彈窗，自動點擊同意/下一步/安裝按鈕"""
+    """背景監控安裝程式彈窗，自動點擊同意/下一步/安裝按鈕 (不依賴滑鼠座標與 DPI)"""
     try:
-        from pywinauto import Desktop, keyboard as pwa_kb
+        import uiautomation as auto
+        auto.SetGlobalSearchTimeout(1.0) # 設定搜尋超時，避免卡頓
+        
         click_texts = [
             "同意", "我同意", "接受", "我接受",
             "Agree", "I Agree", "I agree", "Accept",
@@ -496,37 +498,48 @@ def _auto_click_worker(proc, stop_event):
 
         while not stop_event.is_set() and proc.poll() is None:
             try:
-                desktop = Desktop(backend="uia")
-                windows = desktop.windows()
-                for win in windows:
+                # 取得桌面第一層視窗
+                root = auto.GetRootControl()
+                for win in root.GetChildren():
                     try:
-                        if not win.is_visible():
+                        # 排除本程式視窗、無名背景視窗與常見的大型瀏覽器視窗（優化效能）
+                        if win.ProcessId == my_pid:
                             continue
-                        if win.process_id() == my_pid:
+                        if not win.Name:
                             continue
-
-                        # 標準安裝程式：UIA 控制項
-                        # 先勾選同意 checkbox
-                        for ctrl in win.descendants(control_type="CheckBox"):
+                        if win.ClassName in ("Chrome_WidgetWin_1", "MozillaWindowClass"):
+                            continue
+                        
+                        # 遍歷主視窗內的控制項，深度限制為 4 層（足夠應對安裝程式 UI）
+                        for control, depth in auto.WalkControl(win, maxDepth=4):
                             try:
-                                ctrl_text = ctrl.window_text()
-                                for ct in check_texts:
-                                    if ct in ctrl_text:
-                                        toggle = ctrl.get_toggle_state()
-                                        if toggle == 0:
-                                            ctrl.toggle()
-                                        break
-                            except Exception:
-                                pass
-                        # 再點擊按鈕
-                        for ctrl in win.descendants(control_type="Button"):
-                            try:
-                                ctrl_text = ctrl.window_text()
-                                for bt in click_texts:
-                                    if bt == ctrl_text or bt in ctrl_text:
-                                        ctrl.click_input()
-                                        time.sleep(1)
-                                        break
+                                # 1. 處理勾選框 (CheckBox)
+                                if control.ControlType == auto.ControlType.CheckBoxControl:
+                                    ctrl_text = control.Name
+                                    if ctrl_text:
+                                        for ct in check_texts:
+                                            if ct in ctrl_text:
+                                                toggle_pattern = control.GetTogglePattern()
+                                                if toggle_pattern and toggle_pattern.ToggleState == 0:
+                                                    toggle_pattern.Toggle()
+                                                    time.sleep(0.2)
+                                                break
+                                
+                                # 2. 處理按鈕 (Button)
+                                elif control.ControlType == auto.ControlType.ButtonControl:
+                                    ctrl_text = control.Name
+                                    if ctrl_text:
+                                        for bt in click_texts:
+                                            if bt == ctrl_text or bt in ctrl_text:
+                                                invoke_pattern = control.GetInvokePattern()
+                                                if invoke_pattern:
+                                                    # 使用 InvokePattern 直接觸發按鈕點擊，完全不移動滑鼠
+                                                    invoke_pattern.Invoke()
+                                                else:
+                                                    # 若不支援 InvokePattern，則進行不移動滑鼠的 Click 模擬
+                                                    control.Click(simulateMove=False)
+                                                time.sleep(1)
+                                                break
                             except Exception:
                                 pass
                     except Exception:

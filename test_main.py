@@ -86,35 +86,56 @@ if office:
 # ============================================================
 section("3. scan_software()")
 
-items = main.scan_software()
-test("scan_software 回傳 list", isinstance(items, list))
-test("掃描到軟體", len(items) > 0, f"實際: {len(items)}")
+# 動態建立臨時測試檔案，確保在空 software/ 目錄下也能正常測試
+temp_files = ["ChromeSetup.exe", "LineInst.exe", "Winrar.exe"]
+created_files = []
+try:
+    main.SOFTWARE_DIR.mkdir(exist_ok=True)
+    for tf in temp_files:
+        p = main.SOFTWARE_DIR / tf
+        if not p.exists():
+            p.touch()
+            created_files.append(p)
+except Exception:
+    pass
 
-# 驗證 SKIP_FILES 被過濾
-filenames = [i["file"] for i in items]
-test("autorun.inf 被過濾", "autorun.inf" not in filenames)
-test("Setup.exe 被過濾", "Setup.exe" not in filenames)
+try:
+    items = main.scan_software()
+    test("scan_software 回傳 list", isinstance(items, list))
+    test("掃描到軟體", len(items) > 0, f"實際: {len(items)}")
 
-# 驗證排序
-names = [i["name"] for i in items]
-test("清單按名稱排序", names == sorted(names))
+    # 驗證 SKIP_FILES 被過濾
+    filenames = [i["file"] for i in items]
+    test("autorun.inf 被過濾", "autorun.inf" not in filenames)
+    test("Setup.exe 被過濾", "Setup.exe" not in filenames)
 
-# 驗證 catalog 比對
-chrome_items = [i for i in items if i["name"] == "Google Chrome"]
-test("ChromeSetup.exe 匹配到 Google Chrome", len(chrome_items) == 1)
+    # 驗證排序
+    names = [i["name"] for i in items]
+    test("清單按名稱排序", names == sorted(names))
 
-line_items = [i for i in items if i["name"] == "LINE"]
-test("LineInst.exe 匹配到 LINE", len(line_items) == 1)
+    # 驗證 catalog 比對
+    chrome_items = [i for i in items if i["name"] == "Google Chrome"]
+    test("ChromeSetup.exe 匹配到 Google Chrome", len(chrome_items) == 1)
 
-winrar_items = [i for i in items if i["name"] == "WinRAR"]
-test("Winrar.exe 匹配到 WinRAR", len(winrar_items) == 1)
+    line_items = [i for i in items if i["name"] == "LINE"]
+    test("LineInst.exe 匹配到 LINE", len(line_items) == 1)
 
-# 驗證每個 item 有必要欄位
-item_fields = {"file", "path", "name", "description", "silent_args", "type", "requires_config"}
-for item in items:
-    test(f"  {item['name']} item 欄位完整", item_fields.issubset(set(item.keys())))
-    test(f"  {item['name']} path 檔案存在", Path(item["path"]).exists(),
-         f"路徑: {item['path']}")
+    winrar_items = [i for i in items if i["name"] == "WinRAR"]
+    test("Winrar.exe 匹配到 WinRAR", len(winrar_items) == 1)
+
+    # 驗證每個 item 有必要欄位
+    item_fields = {"file", "path", "name", "description", "silent_args", "type", "requires_config"}
+    for item in items:
+        test(f"  {item['name']} item 欄位完整", item_fields.issubset(set(item.keys())))
+        test(f"  {item['name']} path 檔案存在", Path(item["path"]).exists(),
+             f"路徑: {item['path']}")
+finally:
+    # 測試結束後清理臨時檔案
+    for p in created_files:
+        try:
+            p.unlink()
+        except Exception:
+            pass
 
 # ============================================================
 # 4. 空資料夾處理
@@ -249,7 +270,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
 # ============================================================
 section("10. SYSTEM_TWEAKS 結構")
 
-test("有 7 個系統優化項目", len(main.SYSTEM_TWEAKS) == 7)
+test("有 8 個系統優化項目", len(main.SYSTEM_TWEAKS) == 8)
 for tweak in main.SYSTEM_TWEAKS:
     test(f"  {tweak['name']} 有 commands", len(tweak["commands"]) > 0)
     test(f"  {tweak['name']} 有 description", len(tweak["description"]) > 0)
@@ -259,7 +280,7 @@ hibernate = [t for t in main.SYSTEM_TWEAKS if "休眠" in t["name"]][0]
 test("關閉休眠指令正確", "powercfg -h off" in hibernate["commands"])
 
 power = [t for t in main.SYSTEM_TWEAKS if "電源" in t["name"]][0]
-test("電源計畫有 2 個指令", len(power["commands"]) == 2)
+test("電源計畫有 4 個指令", len(power["commands"]) == 4)
 
 desktop_items = [t for t in main.SYSTEM_TWEAKS if "桌面圖示" in t["name"]]
 test("桌面圖示拆為 5 個獨立項目", len(desktop_items) == 5)
