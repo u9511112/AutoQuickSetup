@@ -349,6 +349,7 @@ required_methods = [
     "_select_all_uninstall", "_deselect_all_uninstall",
     "_check_update", "_show_update_dialog",
     "_update_progress",
+    "_open_windows_update", "_open_optional_updates",
 ]
 
 for method in required_methods:

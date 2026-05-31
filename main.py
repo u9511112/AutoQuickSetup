@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.1.2"
-APP_DATE = "2026-05-30"
+APP_VERSION = "1.1.3"
+APP_DATE = "2026-06-01"
 
 CHANGELOG = [
+    {
+        "version": "1.1.3",
+        "date": "2026-06-01",
+        "features": [
+            "新增一鍵開啟 Windows Update 的更新和選用更新 (Optional Updates) 的快捷按鈕",
+        ],
+        "fixes": [],
+    },
     {
         "version": "1.1.2",
         "date": "2026-05-30",
@@ -1010,6 +1018,22 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=16, weight="bold")
         ).pack(anchor="w", padx=5, pady=(0, 8))
 
+        # 快捷更新按鈕
+        shortcut_frame = ctk.CTkFrame(install_scroll, fg_color="transparent")
+        shortcut_frame.pack(fill="x", padx=5, pady=(0, 10))
+
+        ctk.CTkButton(
+            shortcut_frame, text="🌐 開啟 Windows Update", width=160, height=28,
+            fg_color="#1f538d", hover_color="#1a4473",
+            command=self._open_windows_update
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            shortcut_frame, text="🔌 開啟選用更新 (驅動)", width=180, height=28,
+            fg_color="#1f538d", hover_color="#1a4473",
+            command=self._open_optional_updates
+        ).pack(side="left")
+
         for tweak in SYSTEM_TWEAKS:
             var = ctk.BooleanVar(value=True)
             self.tweak_vars[tweak["name"]] = var
@@ -1135,6 +1159,22 @@ class App(ctk.CTk):
             self.install_scroll, text="⚙ 系統優化",
             font=ctk.CTkFont(size=16, weight="bold")
         ).pack(anchor="w", padx=5, pady=(0, 8))
+
+        # 快捷更新按鈕
+        shortcut_frame = ctk.CTkFrame(self.install_scroll, fg_color="transparent")
+        shortcut_frame.pack(fill="x", padx=5, pady=(0, 10))
+
+        ctk.CTkButton(
+            shortcut_frame, text="🌐 開啟 Windows Update", width=160, height=28,
+            fg_color="#1f538d", hover_color="#1a4473",
+            command=self._open_windows_update
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            shortcut_frame, text="🔌 開啟選用更新 (驅動)", width=180, height=28,
+            fg_color="#1f538d", hover_color="#1a4473",
+            command=self._open_optional_updates
+        ).pack(side="left")
 
         for tweak in SYSTEM_TWEAKS:
             if tweak["name"] not in self.tweak_vars:
@@ -1606,6 +1646,20 @@ class App(ctk.CTk):
         else:
             ctk.set_appearance_mode("dark")
             self.theme_btn.configure(text="☀ 淺色")
+
+    def _open_windows_update(self):
+        """開啟 Windows Update 設定頁面"""
+        try:
+            os.startfile("ms-settings:windowsupdate")
+        except Exception as e:
+            self.progress_label.configure(text=f"⚠ 無法開啟 Windows Update: {e}")
+
+    def _open_optional_updates(self):
+        """開啟 Windows Update 選用更新設定頁面"""
+        try:
+            os.startfile("ms-settings:windowsupdate-optionalupdates")
+        except Exception as e:
+            self.progress_label.configure(text=f"⚠ 無法開啟選用更新: {e}")
 
     def _open_log(self):
         """開啟本次安裝日誌，若無則開啟 logs/ 中最新的一份"""
