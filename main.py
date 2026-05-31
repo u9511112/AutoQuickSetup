@@ -1589,9 +1589,21 @@ class App(ctk.CTk):
             )
             updater_bat.write_text(bat_content, encoding="utf-8")
 
-            # 清除當前進程傳遞給子進程的 PyInstaller 環境變數
+            # 清除當前進程傳遞給子進程的 PyInstaller 環境變數，並移除 PATH 中的暫存目錄，避免新版載入舊 DLL 崩潰
             clean_env = os.environ.copy()
-            clean_env.pop("_MEIPASS", None)
+            for key in list(clean_env.keys()):
+                if "meipass" in key.lower():
+                    clean_env.pop(key, None)
+
+            mei_dir = getattr(sys, '_MEIPASS', None)
+            if mei_dir:
+                mei_dir_str = str(mei_dir)
+                paths = clean_env.get("PATH", "").split(os.pathsep)
+                filtered_paths = [
+                    p for p in paths 
+                    if mei_dir_str.lower() not in p.lower() and "_mei" not in p.lower()
+                ]
+                clean_env["PATH"] = os.pathsep.join(filtered_paths)
 
             subprocess.Popen(
                 ["cmd.exe", "/c", str(updater_bat)],
