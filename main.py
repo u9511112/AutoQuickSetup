@@ -779,16 +779,18 @@ def run_system_tweak(tweak):
 
                 # 讀取輸出以進行狀態判定
                 out_err = ""
-                if result.stdout:
-                    try:
-                        out_err += result.stdout.decode("cp950", errors="ignore").lower()
-                    except Exception:
-                        pass
-                if result.stderr:
-                    try:
-                        out_err += result.stderr.decode("cp950", errors="ignore").lower()
-                    except Exception:
-                        pass
+                def safe_decode(b):
+                    if not b:
+                        return ""
+                    for enc in ("utf-8", "cp950", "cp936", "gbk"):
+                        try:
+                            return b.decode(enc).lower()
+                        except Exception:
+                            continue
+                    return b.decode("utf-8", errors="ignore").lower()
+
+                out_err += safe_decode(result.stdout)
+                out_err += safe_decode(result.stderr)
 
                 # 1. 已啟動或已解密狀態特判：視同成功
                 if "already been started" in out_err or "已經啟動" in out_err:
