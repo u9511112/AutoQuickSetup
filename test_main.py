@@ -270,7 +270,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
 # ============================================================
 section("10. SYSTEM_TWEAKS 結構")
 
-test("有 8 個系統優化項目", len(main.SYSTEM_TWEAKS) == 8)
+test("有 10 個系統優化項目", len(main.SYSTEM_TWEAKS) == 10)
 for tweak in main.SYSTEM_TWEAKS:
     test(f"  {tweak['name']} 有 commands", len(tweak["commands"]) > 0)
     test(f"  {tweak['name']} 有 description", len(tweak["description"]) > 0)
@@ -287,6 +287,12 @@ test("桌面圖示拆為 5 個獨立項目", len(desktop_items) == 5)
 
 recycle = [t for t in main.SYSTEM_TWEAKS if "資源回收桶" in t["name"]]
 test("資源回收桶在清單中", len(recycle) == 1)
+
+timezone = [t for t in main.SYSTEM_TWEAKS if "時區" in t["name"]][0]
+test("自動時區有同步指令", "w32tm /resync || ver > nul" in timezone["commands"])
+
+encryption = [t for t in main.SYSTEM_TWEAKS if "裝置加密" in t["name"]][0]
+test("關閉裝置加密指令正確", "manage-bde -off C: || ver > nul" in encryption["commands"])
 
 # ============================================================
 # 11. version.json 測試

@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.1.3"
-APP_DATE = "2026-06-01"
+APP_VERSION = "1.1.4"
+APP_DATE = "2026-07-08"
 
 CHANGELOG = [
+    {
+        "version": "1.1.4",
+        "date": "2026-07-08",
+        "features": [
+            "系統優化新增「自動設定時區與同步時間」與「關閉裝置加密 (BitLocker)」項目（預設啟用）",
+        ],
+        "fixes": [],
+    },
     {
         "version": "1.1.3",
         "date": "2026-06-01",
@@ -261,6 +269,25 @@ SYSTEM_TWEAKS = [
         "description": "關閉 Windows 11 工作列上的小工具（天氣／新聞彈窗）",
         "commands": [
             'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "TaskbarDa" /t REG_DWORD /d 0 /f',
+        ],
+    },
+    {
+        "name": "自動時區與時間同步",
+        "description": "開啟自動設定時區，並立即同步系統時間",
+        "commands": [
+            'reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\tzautoupdate" /v "Start" /t REG_DWORD /d 3 /f',
+            "sc config tzautoupdate start= auto || ver > nul",
+            "net start tzautoupdate || ver > nul",
+            "sc config w32time start= auto || ver > nul",
+            "net start w32time || ver > nul",
+            "w32tm /resync || ver > nul",
+        ],
+    },
+    {
+        "name": "關閉裝置加密",
+        "description": "關閉 C 槽的裝置加密 (BitLocker) 避免遺失金鑰鎖定",
+        "commands": [
+            "manage-bde -off C: || ver > nul",
         ],
     },
 ]
