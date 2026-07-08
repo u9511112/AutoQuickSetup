@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.1.4"
+APP_VERSION = "1.1.5"
 APP_DATE = "2026-07-08"
 
 CHANGELOG = [
+    {
+        "version": "1.1.5",
+        "date": "2026-07-08",
+        "features": [
+            "優化系統優化錯誤處理：不支援的功能改為顯示「此電腦沒有這項功能」，不誤報安裝失敗",
+        ],
+        "fixes": [],
+    },
     {
         "version": "1.1.4",
         "date": "2026-07-08",
@@ -276,18 +284,18 @@ SYSTEM_TWEAKS = [
         "description": "開啟自動設定時區，並立即同步系統時間",
         "commands": [
             'reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\tzautoupdate" /v "Start" /t REG_DWORD /d 3 /f',
-            "sc config tzautoupdate start= auto || ver > nul",
-            "net start tzautoupdate || ver > nul",
-            "sc config w32time start= auto || ver > nul",
-            "net start w32time || ver > nul",
-            "w32tm /resync || ver > nul",
+            "sc config tzautoupdate start= auto",
+            "net start tzautoupdate",
+            "sc config w32time start= auto",
+            "net start w32time",
+            "w32tm /resync",
         ],
     },
     {
         "name": "關閉裝置加密",
         "description": "關閉 C 槽的裝置加密 (BitLocker) 避免遺失金鑰鎖定",
         "commands": [
-            "manage-bde -off C: || ver > nul",
+            "manage-bde -off C:",
         ],
     },
 ]
@@ -746,6 +754,17 @@ def _fallback_reg_add(cmd):
 def run_system_tweak(tweak):
     """執行系統優化指令，回傳 (success, message)"""
     failed = []
+    not_supported = False
+
+    # 用於偵測電腦不支援此功能或服務的關鍵字（不區分大小寫）
+    not_supported_keywords = [
+        "not support", "does not support", "不支援", 
+        "invalid service", "服務名稱無效", "does not exist", "不存在",
+        "not recognized", "不是內部或外部命令", "cannot be used", "無法使用",
+        "not install", "未安裝", "is not supported", "韌體不支援",
+        "is not available", "無法使用此功能", "找不到檔案"
+    ]
+
     for cmd in tweak["commands"]:
         if not cmd.strip():
             continue
@@ -757,7 +776,33 @@ def run_system_tweak(tweak):
                 if cmd_name.lower() == "reg" and "add" in cmd.lower():
                     if _fallback_reg_add(cmd):
                         continue
-                failed.append(cmd_name)
+
+                # 讀取輸出以進行狀態判定
+                out_err = ""
+                if result.stdout:
+                    try:
+                        out_err += result.stdout.decode("cp950", errors="ignore").lower()
+                    except Exception:
+                        pass
+                if result.stderr:
+                    try:
+                        out_err += result.stderr.decode("cp950", errors="ignore").lower()
+                    except Exception:
+                        pass
+
+                # 1. 已啟動或已解密狀態特判：視同成功
+                if "already been started" in out_err or "已經啟動" in out_err:
+                    continue
+                if "already decrypted" in out_err or "已解密" in out_err:
+                    continue
+
+                # 2. 不支援判定
+                if any(kw in out_err for kw in not_supported_keywords):
+                    not_supported = True
+                else:
+                    failed.append(cmd_name)
+        except FileNotFoundError:
+            not_supported = True
         except subprocess.TimeoutExpired:
             failed.append(f"{cmd_name}(逾時)")
         except Exception as e:
@@ -765,9 +810,17 @@ def run_system_tweak(tweak):
             if cmd_name.lower() == "reg" and "add" in cmd.lower():
                 if _fallback_reg_add(cmd):
                     continue
-            failed.append(_cn_error(e))
+            
+            err_msg = str(e).lower()
+            if any(kw in err_msg for kw in not_supported_keywords):
+                not_supported = True
+            else:
+                failed.append(_cn_error(e))
+
     if failed:
         return False, f"部分指令失敗: {', '.join(failed)}"
+    if not_supported:
+        return True, "此電腦沒有這項功能"
     return True, "設定完成"
 
 

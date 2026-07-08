@@ -289,10 +289,10 @@ recycle = [t for t in main.SYSTEM_TWEAKS if "資源回收桶" in t["name"]]
 test("資源回收桶在清單中", len(recycle) == 1)
 
 timezone = [t for t in main.SYSTEM_TWEAKS if "時區" in t["name"]][0]
-test("自動時區有同步指令", "w32tm /resync || ver > nul" in timezone["commands"])
+test("自動時區有同步指令", "w32tm /resync" in timezone["commands"])
 
 encryption = [t for t in main.SYSTEM_TWEAKS if "裝置加密" in t["name"]][0]
-test("關閉裝置加密指令正確", "manage-bde -off C: || ver > nul" in encryption["commands"])
+test("關閉裝置加密指令正確", "manage-bde -off C:" in encryption["commands"])
 
 # ============================================================
 # 11. version.json 測試
@@ -360,6 +360,42 @@ required_methods = [
 
 for method in required_methods:
     test(f"  App.{method} 存在", method in app_methods)
+
+# ============================================================
+# 16. run_system_tweak() 容錯判定測試
+# ============================================================
+section("16. run_system_tweak() 容錯判定")
+
+from unittest.mock import MagicMock
+
+# 1. 測試正常成功
+tweak_ok = {"name": "測試成功", "commands": ["cmd_ok"]}
+with mock.patch("subprocess.run") as mock_run:
+    mock_run.return_value = MagicMock(returncode=0, stdout=b"", stderr=b"")
+    success, msg = main.run_system_tweak(tweak_ok)
+    test("指令成功執行回傳設定完成", success == True and msg == "設定完成")
+
+# 2. 測試「不支援此功能」
+tweak_unsupported = {"name": "測試不支援", "commands": ["cmd_unsupported"]}
+with mock.patch("subprocess.run") as mock_run:
+    mock_run.return_value = MagicMock(returncode=1, stdout=b"", stderr="this feature is not supported on this system".encode("cp950"))
+    success, msg = main.run_system_tweak(tweak_unsupported)
+    test("偵測到不支援輸出回傳此電腦沒有這項功能", success == True and msg == "此電腦沒有這項功能")
+
+# 3. 測試「已啟動」特判為成功
+tweak_started = {"name": "測試已啟動", "commands": ["cmd_started"]}
+with mock.patch("subprocess.run") as mock_run:
+    mock_run.return_value = MagicMock(returncode=2, stdout=b"", stderr="the requested service has already been started".encode("cp950"))
+    success, msg = main.run_system_tweak(tweak_started)
+    test("偵測到服務已啟動視同設定完成", success == True and msg == "設定完成")
+
+# 4. 測試真實失敗
+tweak_fail = {"name": "測試失敗", "commands": ["cmd_fail"]}
+with mock.patch("subprocess.run") as mock_run:
+    mock_run.return_value = MagicMock(returncode=5, stdout=b"", stderr="access denied".encode("cp950"))
+    success, msg = main.run_system_tweak(tweak_fail)
+    test("真實失敗回傳部分指令失敗", success == False and "部分指令失敗" in msg)
+
 
 # ============================================================
 # 15. speak() 備案測試
