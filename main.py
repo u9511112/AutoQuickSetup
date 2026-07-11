@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.1.7"
+APP_VERSION = "1.1.8"
 APP_DATE = "2026-07-11"
 
 CHANGELOG = [
+    {
+        "version": "1.1.8",
+        "date": "2026-07-11",
+        "features": [],
+        "fixes": [
+            "根治更新後重啟的 DLL 載入錯誤：在更新腳本中重設 PATH 為乾淨系統路徑，並改用 PowerShell Start-Process -UseNewEnvironment 啟動新版，從根源切斷 PyInstaller _MEI* 路徑繼承",
+        ],
+    },
     {
         "version": "1.1.7",
         "date": "2026-07-11",
@@ -1666,9 +1674,19 @@ class App(ctk.CTk):
 
             self.after(0, lambda: status_label.configure(text="準備安裝，程式即將重啟..."))
 
-            task_name = "AutoQuickSetupUpdater"
+            # 取得系統 PATH（不含 PyInstaller 的 _MEI* 暫存路徑）
+            system_path = ";".join([
+                r"%SystemRoot%\System32",
+                r"%SystemRoot%",
+                r"%SystemRoot%\System32\Wbem",
+                r"%SystemRoot%\System32\WindowsPowerShell\v1.0",
+            ])
+
             bat_content = (
                 "@echo off\r\n"
+                # 重設 PATH 為乾淨的系統路徑，從根源切斷 PyInstaller _MEI* 繼承
+                f"set PATH={system_path}\r\n"
+                "set _MEIPASS=\r\n"
                 "ping 127.0.0.1 -n 4 >nul\r\n"  # 等待舊進程完全關閉
                 "setlocal\r\n"
                 "set /a TRIES=0\r\n"
@@ -1681,17 +1699,14 @@ class App(ctk.CTk):
                 "    goto RETRY\r\n"
                 ")\r\n"
                 ":LAUNCH\r\n"
-                # 用 schtasks 以全新 Session 啟動，徹底切斷舊進程環境繼承
-                f'schtasks /create /tn "{task_name}" /tr "{current_exe}" /sc ONCE /st 00:00 /f /rl HIGHEST >nul 2>&1\r\n'
-                f'schtasks /run /tn "{task_name}" >nul 2>&1\r\n'
-                "ping 127.0.0.1 -n 3 >nul\r\n"
-                f'schtasks /delete /tn "{task_name}" /f >nul 2>&1\r\n'
+                # 用 PowerShell Start-Process + UseShellExecute 以等同 Explorer 雙擊的方式啟動
+                # UseShellExecute=$true 建立完全獨立的新進程，不繼承任何舊進程環境
+                f'powershell -WindowStyle Hidden -Command "Start-Process -FilePath \'{current_exe}\' -UseNewEnvironment"\r\n'
                 ":CLEANUP\r\n"
                 'del "%~f0"\r\n'
             )
             updater_bat.write_text(bat_content, encoding="utf-8")
 
-            # 以最小環境啟動 bat，schtasks 本身會以獨立 Session 啟動新 exe，無需額外清理 PATH
             subprocess.Popen(
                 ["cmd.exe", "/c", str(updater_bat)],
                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
