@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.1.6"
+APP_VERSION = "1.1.7"
 APP_DATE = "2026-07-11"
 
 CHANGELOG = [
+    {
+        "version": "1.1.7",
+        "date": "2026-07-11",
+        "features": [],
+        "fixes": [
+            "根治更新後重啟的 Python DLL 載入錯誤：改用 Windows 工作排程器 (schtasks) 以全新獨立 Session 啟動新版，完全切斷環境繼承鏈",
+        ],
+    },
     {
         "version": "1.1.6",
         "date": "2026-07-11",
@@ -1658,50 +1666,36 @@ class App(ctk.CTk):
 
             self.after(0, lambda: status_label.configure(text="準備安裝，程式即將重啟..."))
 
+            task_name = "AutoQuickSetupUpdater"
             bat_content = (
                 "@echo off\r\n"
-                "set _MEIPASS=\r\n"  # 清除 PyInstaller 暫存路徑變數，防止新版繼承污染
-                "ping 127.0.0.1 -n 3 >nul\r\n"
+                "ping 127.0.0.1 -n 4 >nul\r\n"  # 等待舊進程完全關閉
                 "setlocal\r\n"
                 "set /a TRIES=0\r\n"
                 ":RETRY\r\n"
                 "set /a TRIES+=1\r\n"
-                "if %TRIES% gtr 15 goto FAIL\r\n"
+                "if %TRIES% gtr 15 goto LAUNCH\r\n"
                 f'move /y "{new_exe}" "{current_exe}" >nul 2>&1\r\n'
                 "if errorlevel 1 (\r\n"
                 "    ping 127.0.0.1 -n 2 >nul\r\n"
                 "    goto RETRY\r\n"
                 ")\r\n"
-                f'start "" "{current_exe}"\r\n'
-                "goto CLEANUP\r\n"
-                ":FAIL\r\n"
-                f'start "" "{current_exe}"\r\n'
+                ":LAUNCH\r\n"
+                # 用 schtasks 以全新 Session 啟動，徹底切斷舊進程環境繼承
+                f'schtasks /create /tn "{task_name}" /tr "{current_exe}" /sc ONCE /st 00:00 /f /rl HIGHEST >nul 2>&1\r\n'
+                f'schtasks /run /tn "{task_name}" >nul 2>&1\r\n'
+                "ping 127.0.0.1 -n 3 >nul\r\n"
+                f'schtasks /delete /tn "{task_name}" /f >nul 2>&1\r\n'
                 ":CLEANUP\r\n"
                 'del "%~f0"\r\n'
             )
             updater_bat.write_text(bat_content, encoding="utf-8")
 
-            # 清除當前進程傳遞給子進程的 PyInstaller 環境變數，並移除 PATH 中的暫存目錄，避免新版載入舊 DLL 崩潰
-            clean_env = os.environ.copy()
-            for key in list(clean_env.keys()):
-                if "meipass" in key.lower():
-                    clean_env.pop(key, None)
-
-            mei_dir = getattr(sys, '_MEIPASS', None)
-            if mei_dir:
-                mei_dir_str = str(mei_dir)
-                paths = clean_env.get("PATH", "").split(os.pathsep)
-                filtered_paths = [
-                    p for p in paths 
-                    if mei_dir_str.lower() not in p.lower() and "_mei" not in p.lower()
-                ]
-                clean_env["PATH"] = os.pathsep.join(filtered_paths)
-
+            # 以最小環境啟動 bat，schtasks 本身會以獨立 Session 啟動新 exe，無需額外清理 PATH
             subprocess.Popen(
                 ["cmd.exe", "/c", str(updater_bat)],
                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
                 close_fds=True,
-                env=clean_env,
             )
             time.sleep(1)
             self.after(0, self.destroy)
