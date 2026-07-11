@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.1.5"
-APP_DATE = "2026-07-08"
+APP_VERSION = "1.1.6"
+APP_DATE = "2026-07-11"
 
 CHANGELOG = [
+    {
+        "version": "1.1.6",
+        "date": "2026-07-11",
+        "features": [],
+        "fixes": [
+            "修復視窗拉小時，底部安裝進度條與備註欄位被擠出可視範圍而隱藏的問題 (採用由下至上的 Pack 固定底端排版)",
+        ],
+    },
     {
         "version": "1.1.5",
         "date": "2026-07-08",
@@ -958,7 +966,6 @@ class App(ctk.CTk):
 
         # 分頁
         self.tabview = ctk.CTkTabview(self)
-        self.tabview.pack(fill="both", expand=True, padx=15, pady=(10, 5))
 
         self.tab_install = self.tabview.add("📦 安裝")
         self.tab_uninstall = self.tabview.add("🗑 解除安裝")
@@ -968,7 +975,6 @@ class App(ctk.CTk):
 
         # 進度區
         progress_frame = ctk.CTkFrame(self)
-        progress_frame.pack(fill="x", padx=15, pady=(5, 5))
 
         # 步驟顯示
         self.step_label = ctk.CTkLabel(
@@ -1016,7 +1022,6 @@ class App(ctk.CTk):
 
         # 底部備註
         footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(fill="x", padx=15, pady=(5, 10))
 
         ctk.CTkLabel(
             footer,
@@ -1029,6 +1034,11 @@ class App(ctk.CTk):
             text="By: 謝智翔",
             font=ctk.CTkFont(size=12), text_color="gray"
         ).pack(side="right")
+
+        # 底部排版（由下至上 pack，確保固定於底部）
+        footer.pack(side="bottom", fill="x", padx=15, pady=(5, 10))
+        progress_frame.pack(side="bottom", fill="x", padx=15, pady=(5, 5))
+        self.tabview.pack(side="top", fill="both", expand=True, padx=15, pady=(10, 5))
 
     def _build_install_tab(self):
         tab = self.tab_install
