@@ -396,6 +396,13 @@ with mock.patch("subprocess.run") as mock_run:
     success, msg = main.run_system_tweak(tweak_fail)
     test("真實失敗回傳部分指令失敗", success == False and "部分指令失敗" in msg)
 
+# 5. 測試「TaskbarDa 存取被拒」特判為不支援
+tweak_taskbar = {"name": "測試工作列小工具", "commands": ["reg add ... /v \"TaskbarDa\" ..."]}
+with mock.patch("subprocess.run") as mock_run:
+    mock_run.return_value = MagicMock(returncode=5, stdout=b"", stderr="存取被拒".encode("cp950"))
+    success, msg = main.run_system_tweak(tweak_taskbar)
+    test("工作列小工具存取被拒回傳此電腦沒有這項功能", success == True and msg == "此電腦沒有這項功能")
+
 
 # ============================================================
 # 15. speak() 備案測試

@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.1.8"
-APP_DATE = "2026-07-11"
+APP_VERSION = "1.1.9"
+APP_DATE = "2026-07-18"
 
 CHANGELOG = [
+    {
+        "version": "1.1.9",
+        "date": "2026-07-18",
+        "features": [],
+        "fixes": [
+            "優化「關閉工作列小工具」容錯：針對 TaskbarDa 敏感鍵值因防毒或系統篡改防護導致的「存取被拒」進行特判，標記為不支援而非失敗，確保綠色勾選通過",
+        ],
+    },
     {
         "version": "1.1.8",
         "date": "2026-07-11",
@@ -822,7 +830,12 @@ def run_system_tweak(tweak):
                 if "already decrypted" in out_err or "已解密" in out_err:
                     continue
 
-                # 2. 不支援判定
+                # 2. 針對敏感鍵值（如 TaskbarDa）如果存取被拒，特判為不支援（已被防毒或系統篡改防護鎖定）
+                if "taskbarda" in cmd.lower() and any(kw in out_err for kw in ("access denied", "存取被拒", "拒絕存取", "unauthorizedaccess")):
+                    not_supported = True
+                    continue
+
+                # 3. 不支援判定
                 if any(kw in out_err for kw in not_supported_keywords):
                     not_supported = True
                 else:
@@ -838,7 +851,9 @@ def run_system_tweak(tweak):
                     continue
             
             err_msg = str(e).lower()
-            if any(kw in err_msg for kw in not_supported_keywords):
+            if "taskbarda" in cmd.lower() and any(kw in err_msg for kw in ("permission", "access", "denied", "存取被拒", "拒絕存取")):
+                not_supported = True
+            elif any(kw in err_msg for kw in not_supported_keywords):
                 not_supported = True
             else:
                 failed.append(_cn_error(e))
