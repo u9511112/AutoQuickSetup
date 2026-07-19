@@ -210,6 +210,21 @@ success, msg = main.run_install(fake_office)
 test("Office 缺 config.xml 時跳過", success == False)
 test("Office 跳過訊息正確", "configuration.xml" in msg)
 
+# WPS 線上引導檔（體積過小）應直接跳過，不進入 10 分鐘逾時等待
+with tempfile.TemporaryDirectory() as tmpdir:
+    stub_path = Path(tmpdir) / "Setup-WPS-EN.exe"
+    stub_path.write_bytes(b"0" * 1024)  # 1KB，遠小於 50MB 門檻
+    fake_wps_stub = {
+        "path": str(stub_path),
+        "name": "WPS Office 英文版",
+        "silent_args": "/S",
+        "type": "exe",
+        "requires_config": False,
+    }
+    success, msg = main.run_install(fake_wps_stub)
+    test("WPS 線上引導檔（體積過小）直接跳過", success == False)
+    test("WPS 引導檔跳過訊息正確", "線上安裝引導程式" in msg)
+
 # ============================================================
 # 8. run_uninstall() 靜默參數測試
 # ============================================================

@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.1.9"
-APP_DATE = "2026-07-18"
+APP_VERSION = "1.1.10"
+APP_DATE = "2026-07-19"
 
 CHANGELOG = [
+    {
+        "version": "1.1.10",
+        "date": "2026-07-19",
+        "features": [],
+        "fixes": [
+            "新增 WPS 線上安裝引導程式體積預檢：安裝檔小於 50MB 時直接判定為非離線完整包並跳過，避免卡在授權彈窗白等 10 分鐘逾時",
+        ],
+    },
     {
         "version": "1.1.9",
         "date": "2026-07-18",
@@ -246,6 +254,7 @@ SKIP_FILES = {"autorun.inf", "Setup.exe"}
 SKIP_DIRS = {"Office"}
 
 INSTALL_TIMEOUT = 600  # 10 分鐘
+OFFLINE_INSTALLER_MIN_SIZE = 50 * 1024 * 1024  # 50MB，低於此視為線上引導檔而非離線完整包
 
 # === 系統優化指令 ===
 SYSTEM_TWEAKS = [
@@ -673,6 +682,16 @@ def run_install(item):
             return False, "需要 configuration.xml 設定檔，已跳過"
         # 將 args 中的相對路徑替換為絕對路徑
         args = args.replace("configuration.xml", str(config_xml))
+
+    # WPS 官方線上引導安裝程式體積僅數 MB 且不支援靜默參數，會卡在授權彈窗直到逾時；
+    # 離線完整包通常 >200MB，故以 50MB 為界預先判斷並跳過，避免白等 10 分鐘
+    if "wps" in item.get("name", "").lower():
+        try:
+            file_size = Path(path).stat().st_size
+        except OSError:
+            file_size = None
+        if file_size is not None and file_size < OFFLINE_INSTALLER_MIN_SIZE:
+            return False, "偵測為線上安裝引導程式（非離線完整包），已跳過；請改用官方離線完整安裝包"
 
     try:
         import shlex
