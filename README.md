@@ -206,4 +206,23 @@ AutoQuickSetup/
 
 ---
 
+## 開發者：執行測試
+
+測試檔為 `test_main.py`（自製輕量框架，直接以 Python 執行，無需 pytest）：
+
+```bash
+# Windows 必須帶 PYTHONUTF8=1，否則 cp950 編碼印不出 ✓ 會直接崩潰
+set PYTHONUTF8=1 && .venv\Scripts\python.exe test_main.py
+```
+
+PowerShell：
+
+```powershell
+$env:PYTHONUTF8=1; .venv\Scripts\python.exe test_main.py
+```
+
+目前共 152 項測試，全數通過視為可發布。
+
+---
+
 By: 謝智翔
