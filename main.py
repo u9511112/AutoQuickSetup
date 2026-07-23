@@ -12,10 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-APP_VERSION = "1.1.10"
-APP_DATE = "2026-07-19"
+APP_VERSION = "1.1.11"
+APP_DATE = "2026-07-23"
 
 CHANGELOG = [
+    {
+        "version": "1.1.11",
+        "date": "2026-07-23",
+        "features": [],
+        "fixes": [
+            "修正「高效能電源計畫」漏設休眠逾時：原本只歸零螢幕與睡眠逾時，設定頁的「在以下時間後讓裝置進入休眠狀態」仍停在 1 小時，現補上 hibernate-timeout 的插電與電池兩項，六個逾時全部設為永不",
+        ],
+    },
     {
         "version": "1.1.10",
         "date": "2026-07-19",
@@ -265,12 +273,16 @@ SYSTEM_TWEAKS = [
     },
     {
         "name": "高效能電源計畫",
-        "description": "關閉自動休眠與螢幕關閉（插電/電池皆永不）",
+        "description": "關閉螢幕關閉、睡眠與休眠逾時（插電/電池皆永不）",
         "commands": [
             "powercfg /change standby-timeout-ac 0",
             "powercfg /change monitor-timeout-ac 0",
+            # hibernate-timeout 與「關閉休眠」的 -h off 是兩回事：部分機器（Modern Standby、
+            # 廠商電源方案）關掉休眠功能後，設定頁的「休眠逾時」仍顯示 1 小時，須另外歸零
+            "powercfg /change hibernate-timeout-ac 0",
             "powercfg /change standby-timeout-dc 0",
             "powercfg /change monitor-timeout-dc 0",
+            "powercfg /change hibernate-timeout-dc 0",
         ],
     },
     {

@@ -295,7 +295,11 @@ hibernate = [t for t in main.SYSTEM_TWEAKS if "休眠" in t["name"]][0]
 test("關閉休眠指令正確", "powercfg -h off" in hibernate["commands"])
 
 power = [t for t in main.SYSTEM_TWEAKS if "電源" in t["name"]][0]
-test("電源計畫有 4 個指令", len(power["commands"]) == 4)
+test("電源計畫有 6 個指令", len(power["commands"]) == 6)
+for _t in ("standby", "monitor", "hibernate"):
+    for _p in ("ac", "dc"):
+        test(f"  電源計畫含 {_t}-timeout-{_p}",
+             f"powercfg /change {_t}-timeout-{_p} 0" in power["commands"])
 
 desktop_items = [t for t in main.SYSTEM_TWEAKS if "桌面圖示" in t["name"]]
 test("桌面圖示拆為 5 個獨立項目", len(desktop_items) == 5)
