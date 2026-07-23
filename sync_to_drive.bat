@@ -2,8 +2,9 @@
 chcp 65001 >nul 2>&1
 title AutoQuickSetup - 同步到雲端硬碟
 
-set "SRC=C:\Users\VIPUSER\AutoQuickSetup"
-set "DST=G:\我的雲端硬碟\AutoQuickSetup"
+set "SRC=%~dp0"
+if "%SRC:~-1%"=="\" set "SRC=%SRC:~0,-1%"
+set "DST=%USERPROFILE%\Google Drive\AutoQuickSetup"
 
 echo ===================================================
 echo   同步 AutoQuickSetup 到 Google Drive

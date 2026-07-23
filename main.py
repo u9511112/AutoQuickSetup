@@ -244,14 +244,33 @@ def _cn_error(e):
         return _WIN_ERROR_MAP[e.winerror]
     return str(e)
 
-UPDATE_URL = "https://raw.githubusercontent.com/u9511112/AutoQuickSetup/master/version.json"
-UPDATE_EXE_URL = "https://github.com/u9511112/AutoQuickSetup/releases/latest/download/AutoQuickSetup.exe"
-
-# === 路徑設定 ===
+# === 路徑與環境變數設定 ===
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
 else:
     BASE_DIR = Path(__file__).parent
+
+def _load_env_file(env_path):
+    """手動解析 .env 檔案以載入自訂環境變數/敏感金鑰，防範敏感資訊硬編碼公開於版本控制"""
+    if not env_path.is_file():
+        return
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip().strip("'\"")
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+    except Exception:
+        pass
+
+_load_env_file(BASE_DIR / ".env")
+
+FEEDBACK_EMAIL = os.environ.get("FEEDBACK_EMAIL", "u9511112@gmail.com")
+UPDATE_URL = os.environ.get("UPDATE_URL", "https://raw.githubusercontent.com/u9511112/AutoQuickSetup/master/version.json")
+UPDATE_EXE_URL = os.environ.get("UPDATE_EXE_URL", "https://github.com/u9511112/AutoQuickSetup/releases/latest/download/AutoQuickSetup.exe")
 
 SOFTWARE_DIR = BASE_DIR / "software"
 CATALOG_FILE = BASE_DIR / "software_catalog.json"
@@ -1858,7 +1877,7 @@ class App(ctk.CTk):
             f"\n"
         )
         url = (
-            f"mailto:u9511112@gmail.com"
+            f"mailto:{FEEDBACK_EMAIL}"
             f"?subject={urllib.parse.quote(subject)}"
             f"&body={urllib.parse.quote(body)}"
         )
@@ -1866,7 +1885,7 @@ class App(ctk.CTk):
             os.startfile(url)
             self.progress_label.configure(text="已開啟信箱，感謝您的回報！")
         except OSError as e:
-            self.progress_label.configure(text=f"⚠ 無法開啟信箱：{_cn_error(e)}（請寄到 u9511112@gmail.com）")
+            self.progress_label.configure(text=f"⚠ 無法開啟信箱：{_cn_error(e)}（請寄到 {FEEDBACK_EMAIL}）")
 
     def _show_about(self):
         """顯示版本資訊與更新紀錄"""

@@ -1,7 +1,8 @@
 @echo off
 chcp 65001 >nul 2>&1
-set "SRC=C:\Users\VIPUSER\AutoQuickSetup"
-set "DST=G:\我的雲端硬碟\AutoQuickSetup"
+set "SRC=%~dp0"
+if "%SRC:~-1%"=="\" set "SRC=%SRC:~0,-1%"
+set "DST=%USERPROFILE%\Google Drive\AutoQuickSetup"
 if not exist "%DST%" mkdir "%DST%"
 if not exist "%DST%\software" mkdir "%DST%\software"
 copy /Y "%SRC%\main.py" "%DST%\" >nul 2>&1

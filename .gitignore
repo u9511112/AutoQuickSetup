@@ -1,11 +1,35 @@
+# Environment variables & secrets
+.env
+.env.*
+*.env
+!.env.example
+*.key
+*.pem
+*.secret
+*.token
+
+# Python & Build artifacts
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 build/
 dist/
 *.spec
 *.exe
 !AutoQuickSetup.exe
+
+# User data & runtime logs
 software/
 configs/
 logs/
+*.log
+tmp-*
+
+# IDE & Editor metadata
 .claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
